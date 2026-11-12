@@ -831,14 +831,23 @@ function connect() {
   ws.onclose = () => { wsOpen = false; ws = null; setTimeout(connect, 2000); };
 }
 const usingLive = () => srcMode === 'live' || (srcMode === 'auto' && wsOpen);
+// On the hosted (https) site the browser must be allowed to reach led-audio.exe on this PC
+// ("local network access"). Watch that permission so a block isn't mistaken for "not running".
+let lnaDenied = false;
+if (location.protocol === 'https:' && navigator.permissions) {
+  const checkLna = () => navigator.permissions.query({ name: 'local-network-access' })
+    .then(st => { lnaDenied = st.state === 'denied'; }).catch(() => {});
+  checkLna(); setInterval(checkLna, 2000);
+}
+const LNA_TIP = 'Your browser is blocking this page from reaching led-audio.exe. Click the icon left of the address bar, open site permissions, and allow local network access (apps and services on this device), then reload.';
 setInterval(() => { if (!usingLive()) onFrame(D.testFrame(performance.now() / 1000), 'test'); }, 10);
 setInterval(() => {
   const pill = $('src-state');
   const fresh = performance.now() - lastFrameT < 500;
   const s = !fresh ? 'idle' : frameKind === 'live' && performance.now() - lastLoudT > 3000 ? 'quiet' : frameKind;
   pill.dataset.s = s;
-  pill.textContent = s === 'live' ? 'Live: your PC\'s sound' : s === 'quiet' ? 'Live, but silent: play some music' : s === 'test' ? (srcMode === 'auto' ? 'Test beat (led-audio.exe not running)' : 'Test beat') : srcMode === 'live' ? 'Waiting for led-audio.exe…' : 'No audio';
-  pill.title = s === 'test' && srcMode === 'auto' ? 'Start led-audio.exe and the lights will follow whatever your PC is playing.' : s === 'idle' && srcMode === 'live' ? 'Start led-audio.exe, or switch Audio to Test beat.' : '';
+  pill.textContent = s === 'live' ? 'Live: your PC\'s sound' : s === 'quiet' ? 'Live, but silent: play some music' : s === 'test' ? (srcMode !== 'auto' ? 'Test beat' : lnaDenied ? 'Test beat (browser is blocking led-audio.exe)' : 'Test beat (led-audio.exe not running)') : srcMode === 'live' ? (lnaDenied ? 'Browser is blocking led-audio.exe' : 'Waiting for led-audio.exe…') : 'No audio';
+  pill.title = lnaDenied && !wsOpen && (s === 'test' || s === 'idle') ? LNA_TIP : s === 'test' && srcMode === 'auto' ?'Start led-audio.exe and the lights will follow whatever your PC is playing.' : s === 'idle' && srcMode === 'live' ? 'Start led-audio.exe, or switch Audio to Test beat.' : '';
 }, 250);
 
 // Mirrors the sketch's gate/gain/curve/smoothing so you can see what the focused layer receives.
