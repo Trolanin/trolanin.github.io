@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<pre id="out">running…</pre>
+<script src="transpiler.js"></script>
+<script src="runtime.js"></script>
+<script src="designer-gen.js"></script>
+<script>
+/* Generates sketches for every effect x colour mode (plus option variations and all presets),
+   compiles them, runs each for 0.8 s with the test groove on Serial, and checks they animate. */
+const D = LEDDesigner;
+const cases = [];
+const effects = Object.keys(D.EFFECTS), colors = Object.keys(D.COLORS), sources = ['bands', 'level', 'beat'];
+let i = 0;
+for (const effect of effects) for (const color of colors) {
+  const d = D.newDesign();
+  d.global.trailMs = i % 3 === 0 ? 120 : 0;
+  d.global.numLeds = i % 5 === 0 ? 45 : 60;
+  d.layers = [D.newLayer({
+    name: effect + '/' + color, effect, color, source: sources[i % 3], gate: 10, mirror: i % 2 === 1, reverse: i % 4 >= 2,
+    trigger: i % 2 ? 'beat' : 'threshold', threshold: 120, curve: ['linear', 'punchy', 'gentle'][i % 3], attack: i % 2 ? 0 : 20,
+    peakHold: i % 2 === 0, start: i % 7 === 0 ? 10 : 0, length: i % 7 === 0 ? 30 : 60, opacity: 220,
+  })];
+  cases.push([effect + ' / ' + color, d]);
+  i++;
+}
+for (const [name, mk] of Object.entries(D.PRESETS)) cases.push(['preset: ' + name, mk()]);
+
+const one = (name, layer, over) => { const d = D.newDesign(); Object.assign(d.global, over || {}); d.layers = [D.newLayer({ name, ...layer })]; cases.push([name, d]); };
+const pals = { builtin: { palette: 'OceanColors_p' }, custom1: { palette: 'custom', customPal: ['#ff2200'] }, custom5: { palette: 'custom', customPal: D.randomPalette(D.mulberry32(5), 5) }, custom16: { palette: 'custom', customPal: D.randomPalette(D.mulberry32(16), 16) } };
+let j = 0;
+for (const effect of ['colorshift', 'intensity']) for (const mode of Object.keys(D.SEQ_MODES)) for (const [pn, pal] of Object.entries(pals)) {
+  // a single colour that never changes is correct for colour change with one colour
+  const still = effect === 'colorshift' && pn === 'custom1' && !(j % 2);
+  one(`${effect} / ${mode} / ${pn}`, { effect, seqMode: mode, hardSteps: j % 2 === 1, briFollow: j % 2 === 1, palSpread: j % 3, seqFade: j % 2 ? 0 : 120,
+    trigger: j % 3 === 2 ? 'threshold' : 'beat', threshold: 100, color: 'palette', mirror: j % 2 === 0, intLevels: [255, 40, 160].slice(0, 1 + j % 3), ...pal });
+  if (still) cases[cases.length - 1].push({ still: true });
+  j++;
+}
+for (const effect of Object.keys(D.EFFECTS)) {
+  one(`brightness pattern on ${effect}`, { effect, intOn: true, intMode: Object.keys(D.SEQ_MODES)[j % 3], intLevels: [255, 0, 120], intFade: j % 2 ? 0 : 50, color: 'rainbow' });
+  j++;
+}
+for (const [cn, cond] of Object.entries({ bpm: { bpm: [100, 140] }, bass: { bass: [40, 255] }, treble: { treble: [0, 60] }, loud: { loud: [30, 255] }, all: { bpm: [60, 200], bass: [1, 250], treble: [1, 250], loud: [1, 250] } })) {
+  one(`palmood condition on ${cn}`, { effect: 'palmood', briFollow: true, palSpread: 2, moodAvg: 500, moodHold: 0, moodFade: 300,
+    moods: [D.newMood('custom', { colors: ['#ff0000', '#ffff00'], ...cond }), D.newMood('OceanColors_p')] });
+}
+const rng = D.mulberry32(1234), groupKeys = Object.keys(D.RAND_GROUPS);
+for (let r = 0; r < 40; r++) {
+  const d = D.newDesign();
+  const groups = Object.fromEntries(groupKeys.map(g => [g, r < 20 || rng() < 0.6]));
+  d.layers = [D.randomizeLayer(D.newLayer({ name: 'rand ' + r }), rng, groups)];
+  if (r % 4 === 0) d.layers.push(D.randomizeLayer(D.newLayer({ name: 'rand ' + r + 'b' }), rng));
+  d.layers.forEach(L => { L.opacity = Math.max(L.opacity, 200); L.gate = Math.min(L.gate, 30); });
+  cases.push(['random ' + r + ' (' + d.layers.map(L => L.effect).join('+') + ')', d]);
+}
+
+function runDesign(design) {
+  return new Promise((resolve) => {
+    const r = { frames: 0, peak: 0, changes: 0, error: null, line: 0, warn: [] };
+    let js, src = D.generate(design), last = '';
+    try { js = LEDSim.compile(src).js; } catch (e) { r.error = 'compile: ' + e.message; r.line = e.line; r.src = src; resolve(r); return; }
+    const host = {
+      post(m) {
+        if (m.type === 'frame') {
+          r.frames++;
+          for (const v of m.buf) if (v > r.peak) r.peak = v;
+          const k = m.buf.join(',');
+          if (k !== last) { r.changes++; last = k; }
+        } else if (m.type === 'warn') r.warn.push(m.message);
+        else if (m.type === 'error') { r.error = m.message; r.line = m.line; r.src = src; finish(); }
+        else if (m.type === 'done') finish();
+      },
+      onmessage: null,
+    };
+    const t0 = performance.now();
+    const feed = setInterval(() => host.onmessage({ type: 'rx', bytes: D.testFrame((performance.now() - t0) / 1000) }), 10);
+    let done = false;
+    function finish() { if (done) return; done = true; clearInterval(feed); resolve(r); }
+    LED_RUNTIME(host);
+    host.onmessage({ type: 'run', code: js + '\n//# sourceURL=sketch.ino', speed: 1, stopAt: 1300 });
+    setTimeout(() => { if (!done) { r.error = r.error || 'TIMEOUT'; finish(); } }, 10000);
+  });
+}
+
+(async function () {
+  const lines = [];
+  let fails = 0;
+  for (let k = 0; k < cases.length; k += 12) {
+    const batch = cases.slice(k, k + 12);
+    const res = await Promise.all(batch.map(([, d]) => runDesign(d)));
+    batch.forEach(([name, , opt], j) => {
+      const r = res[j];
+      // step-on-beat effects only change a few times a second, so they need fewer visible changes
+      const stepped = /colorshift|intensity/.test(name);
+      const ok = !r.error && r.frames > 10 && r.peak > 20 && (r.changes > (stepped ? 2 : 5) || (opt && opt.still)) && !r.warn.length;
+      if (!ok) fails++;
+      lines.push((ok ? 'PASS ' : 'FAIL ') + name + `  frames=${r.frames} peak=${r.peak} changes=${r.changes}` +
+        (r.error ? `  [${r.error} @ line ${r.line}]` : '') + (r.warn.length ? '  warn=' + JSON.stringify(r.warn) : ''));
+      if (r.error && r.src && r.line) lines.push('    > ' + r.src.split('\n')[r.line - 1]);
+    });
+  }
+  lines.push(fails ? `${fails} FAILED of ${cases.length}` : `ALL ${cases.length} PASSED`);
+  document.getElementById('out').textContent = lines.join('\n');
+  document.title = 'done';
+})();
+</script>

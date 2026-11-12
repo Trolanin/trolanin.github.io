@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED Audio Designer</title>
+<style>
+  :root {
+    --bg: #0d0f13; --panel: #151820; --panel-2: #1b1f29; --line: #272c38; --line-2: #343a49;
+    --text: #e4e7ee; --muted: #9aa3b5; --faint: #7f889b;
+    --accent: #35d6a4; --accent-ink: #062018; --warn: #ffb454; --err: #ff6b6b; --info: #6cb6ff;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+  button, select, input { font: inherit; color: inherit; }
+  h1, h2, h3 { margin: 0; font-weight: 600; }
+  a { color: var(--info); }
+
+  .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  .brand { display: flex; align-items: baseline; gap: 10px; margin-right: 8px; }
+  .brand h1 { font-size: 16px; }
+  .brand .sub { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  .btn { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 11px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: #4a5266; background: #212633; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.small { padding: 2px 8px; font-size: 12px; }
+  .btn.icon { padding: 2px 7px; color: var(--muted); background: transparent; border-color: transparent; }
+  .btn.icon:hover { color: var(--text); background: var(--panel-2); }
+  .btn:disabled { opacity: .4; cursor: default; pointer-events: none; }
+  :focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+  select, input[type="number"], input[type="text"] { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 8px; min-width: 0; }
+  input[type="range"] { accent-color: var(--accent); width: 100%; min-width: 0; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  main { display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 16px; padding: 16px 20px 28px; max-width: 1700px; margin: 0 auto; align-items: start; }
+  @media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; } }
+  .col { display: grid; gap: 16px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .bar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .hint { color: var(--faint); font-size: 12px; }
+
+  /* form rows */
+  .form { padding: 6px 12px 10px; }
+  .sec { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin: 12px 0 4px; }
+  .row { display: grid; grid-template-columns: 128px minmax(0, 1fr) 124px; gap: 10px; align-items: center; min-height: 30px; }
+  .row > label { color: var(--muted); font-size: 13px; }
+  .row > label[title] { cursor: help; text-decoration: underline dotted var(--line-2); text-underline-offset: 3px; }
+  .palbar { flex: 0 0 72px; height: 16px; border-radius: 4px; border: 1px solid #fff3; }
+  .row .val { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  input.num { width: 66px; padding: 3px 6px; text-align: right; font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+  .unit { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .unit .swatch { margin: 0; width: 18px; height: 14px; }
+  .row.block { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 4px 0; }
+  .line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-width: 0; }
+
+  /* palette editor */
+  .paled { display: grid; gap: 8px; }
+  .pal-sw { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .pal-chip { width: 24px; height: 24px; padding: 0; border-radius: 5px; border: 1px solid #fff4; cursor: grab; }
+  .pal-chip.sel { outline: 2px solid var(--text); outline-offset: 2px; }
+  .pal-body { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .wheel { width: 140px; height: 140px; flex: 0 0 140px; cursor: crosshair; touch-action: none; }
+  .pal-side { display: grid; gap: 8px; flex: 1 1 170px; min-width: 0; }
+  .pal-side input[type="range"] { flex: 1 1 60px; width: 60px; }
+  .hex { width: 90px; font: 12px var(--mono); }
+
+  /* brightness levels */
+  .leveled { display: grid; gap: 6px; }
+  canvas.levels { display: block; width: 100%; height: 72px; background: #10131a; border-radius: 6px; cursor: ns-resize; touch-action: none; }
+
+  /* mood palettes */
+  .moods { display: grid; gap: 8px; }
+  .moods .note { margin: 0; }
+  .mood { border: 1px solid var(--line-2); border-radius: 8px; padding: 8px; display: grid; gap: 6px; }
+  .mood.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .mood-head { display: flex; gap: 6px; align-items: center; }
+  .mood-head select { flex: 1; min-width: 0; }
+  .cond { display: grid; grid-template-columns: 64px 62px auto 62px minmax(0, 1fr); gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+  .cond input { width: 62px; padding: 2px 6px; font: 12px var(--mono); }
+  .cond .now { color: var(--accent); font: 11px var(--mono); text-align: right; white-space: nowrap; }
+
+  /* randomize */
+  .randbox { display: inline-flex; align-items: center; }
+  .randbox .btn.icon { padding: 2px 4px; }
+  .dice.locked { opacity: .4; }
+  .rand-drop { position: absolute; z-index: 20; width: 280px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 9px; padding: 10px 12px; box-shadow: 0 10px 30px #000b; display: grid; gap: 6px; font-size: 13px; }
+  .rand-drop .rd-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rand-drop label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .rand-drop label.dis { opacity: .45; cursor: default; }
+  .row.wide { grid-template-columns: 128px minmax(0, 1fr); }
+  .row .pair { display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .row .pair select { flex: 1; }
+  .note { color: var(--faint); font-size: 12px; margin: 2px 0 4px 138px; }
+  input.hue { -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #f00 0%, #ab5500 12.5%, #abab00 25%, #0f0 37.5%, #00ab55 50%, #00f 62.5%, #5500ab 75%, #ab0055 87.5%, #f00 100%); }
+  input.hue::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid #000; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; border: 1px solid #fff3; }
+
+  /* layers */
+  .layers { display: grid; gap: 10px; padding: 10px; }
+  .layer { border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel-2); }
+  .layer.focus { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .layer.off .lhead input[type="text"], .layer.off .sum { opacity: .5; }
+  .lhead { display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer; min-height: 40px; }
+  .lhead input[type="text"] { flex: 1 1 60px; width: 60px; background: transparent; border-color: transparent; font-weight: 600; padding: 3px 6px; text-overflow: ellipsis; }
+  .lhead input[type="text"]:hover, .lhead input[type="text"]:focus { border-color: var(--line-2); background: var(--panel); }
+  .lhead .sum { flex: 0 1 auto; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lhead .sum .swatch { width: 22px; }
+  /* layer actions appear on hover / keyboard focus so the collapsed row has room for its summary */
+  .lhead .acts { display: none; align-items: center; gap: 1px; }
+  .layer:hover .acts, .layer:focus-within .acts, .layer.solo .acts { display: inline-flex; }
+  .layer:hover .sum, .layer:focus-within .sum { display: none; }
+  .layer.solo:not(:hover):not(:focus-within) .acts .btn:not(.solo-btn) { display: none; }
+  @media (hover: none) { .lhead .acts { display: inline-flex; } .lhead .sum { display: none; } }
+  .solo-btn { font-size: 12px; }
+  .layer.solo .solo-btn { background: var(--warn); color: #2a1a00; font-weight: 600; }
+  .layer .form { border-top: 1px solid var(--line); background: var(--panel); border-radius: 0 0 9px 9px; }
+  .empty { color: var(--muted); padding: 14px; text-align: center; }
+  .empty-acts { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+
+  /* preview */
+  #preview { display: block; width: 100%; height: 300px; border: 0; background: #060709; }
+  #err { display: flex; gap: 10px; padding: 8px 12px; background: #3a1c1f; border-bottom: 1px solid #5c2a2e; color: #ffd0d0; font-size: 13px; }
+  #err[hidden] { display: none; }
+  #err b { font: 600 12px var(--mono); color: var(--err); white-space: nowrap; }
+  #solo-note { display: flex; align-items: center; gap: 10px; padding: 5px 12px; background: #3a2c12; border-bottom: 1px solid #6b4f1c; color: #ffe2b0; font-size: 13px; }
+  #solo-note[hidden] { display: none; }
+  #solo-note span { flex: 1; }
+
+  /* audio monitor */
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .pill[data-s="live"]::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .pill[data-s="test"]::before, .pill[data-s="quiet"]::before { background: var(--warn); }
+  .pill[data-s="quiet"] { color: var(--warn); }
+  #mon { display: block; width: 100%; height: 200px; touch-action: none; }
+
+  /* Preview + monitor stay pinned under the header while the settings scroll (unless unpinned). */
+  .col.right { align-self: stretch; align-content: start; }
+  .stick { position: sticky; top: var(--hdr, 53px); z-index: 4; display: grid; gap: 10px; background: var(--bg); padding: 0 0 10px; margin-bottom: -10px; }
+  .stick.unpinned { position: static; }
+  .inline { display: inline-flex; gap: 8px; align-items: center; }
+  .inline[hidden] { display: none; }
+  @media (max-width: 980px) {
+    .col.right { order: -1; }
+    .stick { display: contents; }          /* narrow: only the preview stays pinned */
+    .stick > section:first-child { position: sticky; top: var(--hdr, 53px); z-index: 4; }
+    .stick.unpinned > section:first-child { position: static; }
+  }
+
+  /* keep the top bar and preview bar to one line on laptop widths */
+  .top { padding: 7px 16px; gap: 8px; }
+  .top .btn { padding: 4px 10px; }
+  #preset { max-width: 170px; }
+  #nled-r { width: 110px !important; }
+  @media (max-width: 1500px) {
+    .brand .sub { display: none; }
+    #dname { width: 150px !important; }
+    #nled-r { width: 80px !important; }
+    .stick .bar { gap: 6px; }
+  }
+
+  /* collapsible sections */
+  .bar h2 { cursor: pointer; user-select: none; }
+  .chev { background: transparent; border: 0; color: var(--faint); cursor: pointer; padding: 0 2px; width: 18px; font-size: 12px; }
+  .chev:hover { color: var(--text); }
+  .card.collapsed > :not(.bar) { display: none !important; }
+  .card.collapsed > .bar { border-bottom: 0; }
+
+  /* drag-to-resize handles */
+  .grip { height: 12px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; touch-action: none; border-top: 1px solid var(--line); }
+  .grip::before { content: ""; width: 40px; height: 3px; border-radius: 2px; background: var(--line-2); }
+  .grip:hover::before, .grip.drag::before { background: var(--muted); }
+  #code { resize: vertical; height: 420px; max-height: none; }
+
+  /* code + flashing instructions: full width under both columns */
+  .bottom { grid-column: 1 / -1; display: grid; gap: 16px; min-width: 0; }
+
+  /* code */
+  #code { margin: 0; padding: 10px 14px; max-height: 520px; overflow: auto; font: 12.5px/1.5 var(--mono); color: #c9d1e0; white-space: pre; tab-size: 2; }
+  details.card summary { cursor: pointer; padding: 9px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  details.card .body { padding: 0 14px 12px; color: var(--muted); font-size: 13px; }
+  details.card ol { margin: 6px 0; padding-left: 20px; }
+  details.card li { margin: 3px 0; }
+  code { font: 12px var(--mono); color: #b9c3d6; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: var(--panel-2); border: 1px solid var(--line-2); padding: 8px 14px; border-radius: 8px; box-shadow: 0 6px 24px #0008; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
+  .toast.show { opacity: 1; pointer-events: auto; }
+  .toast .btn { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><h1>LED Audio Designer</h1><span class="sub">design → preview → flash</span></div>
+  <input type="text" id="dname" aria-label="design name" spellcheck="false" style="width: 200px">
+  <select id="preset" aria-label="load a preset"><option value="">Presets…</option></select>
+  <button class="btn" id="save-preset">Save as preset</button>
+  <button class="btn" id="undo" title="Undo the last change (Ctrl+Z)">Undo</button>
+  <button class="btn" id="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+  <span class="spacer"></span>
+  <button class="btn" id="import">Import…</button>
+  <input type="file" id="file" accept=".ino,.json,.txt" hidden>
+  <button class="btn" id="export">Export design</button>
+  <button class="btn" id="copy">Copy code</button>
+  <button class="btn primary" id="download">Download .ino</button>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card" data-key="global">
+      <div class="bar"><h2>Strip &amp; board</h2></div>
+      <div class="form" id="global"></div>
+    </section>
+    <section class="card" data-key="layers">
+      <div class="bar"><h2>Layers</h2><span class="hint" title="Layers are added together on the strip. Click a layer to see what it hears in the monitor.">added together · click one to monitor it</span><span class="spacer"></span><button class="btn small" id="add">+ Add layer</button></div>
+      <div class="layers" id="layers"></div>
+    </section>
+  </div>
+
+  <div class="col right">
+    <div class="stick">
+    <section class="card" data-key="preview">
+      <div class="bar">
+        <h2>Live preview</h2>
+        <span class="spacer"></span>
+        <label class="hint" for="shape">Shape</label>
+        <select id="shape">
+          <option value="strip">Straight strip</option>
+          <option value="ring">Circle</option>
+          <option value="square">Square</option>
+          <option value="triangle">Triangle</option>
+          <option value="hexagon">Hexagon</option>
+          <option value="star">Star</option>
+          <option value="heart">Heart</option>
+          <option value="matrix">Matrix (grid)</option>
+        </select>
+        <span id="cols-wrap" class="inline"><label class="hint" for="cols">Columns</label><input type="number" id="cols" min="1" max="120" style="width: 64px"></span>
+        <label class="hint" for="nled">LEDs</label>
+        <input type="range" id="nled-r" min="1" max="300" aria-label="LED count slider" style="width: 140px">
+        <input type="number" id="nled" min="1" max="1000" style="width: 74px">
+        <label class="hint inline"><input type="checkbox" id="diffuse"> Diffuser</label>
+        <label class="hint inline" title="Keep the preview and monitor on screen while scrolling"><input type="checkbox" id="pin"> Pin</label>
+      </div>
+      <div id="err" hidden><b id="err-where"></b><span id="err-msg"></span></div>
+      <div id="solo-note" hidden><span id="solo-text"></span><button class="btn small" id="solo-off">Show all layers</button></div>
+      <iframe id="preview" src="index.html#embed" title="LED preview"></iframe>
+      <div class="grip" id="grip-preview" title="Drag to resize · double-click to reset"></div>
+    </section>
+
+    <section class="card" data-key="monitor">
+      <div class="bar">
+        <h2>What the lights hear</h2>
+        <span class="pill" id="src-state" data-s="idle">—</span>
+        <span class="spacer"></span>
+        <label class="hint" for="src">Audio</label>
+        <select id="src">
+          <option value="auto">Auto (live music if available)</option>
+          <option value="live">Live music only</option>
+          <option value="test">Test beat (120 BPM)</option>
+        </select>
+      </div>
+      <canvas id="mon" role="img" aria-label="Audio monitor: 16 frequency bands, overall level and beat, plus what the selected layer hears"></canvas>
+      <div class="grip" id="grip-mon" title="Drag to resize · double-click to reset"></div>
+    </section>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <section class="card" data-key="code">
+      <div class="bar"><h2>Generated sketch</h2><span class="hint" id="code-info"></span><span class="spacer"></span><button class="btn small" id="copy2">Copy</button><button class="btn small" id="open-sim">Open in simulator</button></div>
+      <pre id="code"></pre>
+    </section>
+
+    <details class="card" id="flash">
+      <summary>Flashing it to the ESP32</summary>
+      <div class="body">
+        <ol>
+          <li>Plug in the ESP32 and click <b>Download .ino</b>.</li>
+          <li>Drag the downloaded .ino onto <b>flash.bat</b> in the led-sim folder. It compiles, finds the ESP32's port, uploads, then starts <code id="flash-cmd">led-audio.exe --port COM5</code> so the board gets audio (the simulator keeps getting it too).</li>
+          <li>Several serial devices plugged in? It asks which port. A specific one: <code>flash.bat my_design.ino COM5</code>.</li>
+        </ol>
+        <p>Using the Arduino IDE instead: install FastLED, pick "ESP32 Dev Module", upload, then close the Serial Monitor and run the led-audio command above — only one program can hold the COM port.</p>
+        <p>The design is saved inside the .ino (the <code>LEDDESIGN</code> line), so <b>Import…</b> on that file brings it back here for more tweaking.</p>
+      </div>
+    </details>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="transpiler.js"></script>
+<script src="designer-gen.js"></script>
+<script src="designer.js"></script>
+</body>
+</html>

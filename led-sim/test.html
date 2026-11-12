@@ -1,0 +1,192 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<pre id="out">running…</pre>
+<script src="transpiler.js"></script>
+<script src="runtime.js"></script>
+<script src="examples.js"></script>
+<script>
+/* Headless self-test: semantic unit sketches (expected Serial output) + every example. */
+const UNIT = [
+['int division & promotion', `
+void setup() {
+  int a = 7, b = 2;
+  Serial.println(a / b);
+  Serial.println(a / 2.0);
+  Serial.println(5 * 255 / 60);
+  Serial.println(-7 / 2);
+  Serial.println(7 % 3);
+  float f = a / b;
+  Serial.println(f);
+}`, '3\n3.50\n21\n-3\n1\n3.00\n'],
+['uint8 wraparound', `
+uint8_t g = 250;
+void setup() {
+  g += 10; Serial.println(g);
+  uint8_t x = 255; x++; Serial.println(x);
+  uint8_t y = 0; y--; Serial.println(y);
+  uint8_t z = 200; uint8_t w = z++ + 100; Serial.println(w); Serial.println(z);
+  int8_t s = 127; s++; Serial.println(s);
+  uint16_t u = 65535; u += 2; Serial.println(u);
+  uint8_t h = 3; Serial.println(h - 5);
+  uint8_t arr[4]; arr[0] = 250; arr[0] += 10; Serial.println(arr[0]);
+  uint32_t big = 4000000000; big += 500000000; Serial.println(big);
+}`, '4\n0\n255\n44\n201\n-128\n1\n-2\n4\n205032704\n'],
+['static locals, switch, ternary, loops', `
+int counter() { static int n = 0; n += 2; return n; }
+const char* name(int k) { switch (k) { case 0: return "zero"; case 1: case 2: return "low"; default: return "many"; } }
+void setup() {
+  counter(); counter();
+  Serial.println(counter());
+  for (int i = 0; i < 4; i++) { if (i == 2) continue; Serial.print(name(i)); Serial.print(i < 3 ? "," : "\\n"); }
+  int k = 0; do { k += 3; } while (k < 10); Serial.println(k);
+  int w = 0; while (true) { if (++w > 4) break; } Serial.println(w);
+}`, '6\nzero,low,many\n12\n5\n'],
+['structs are values', `
+struct P { int x; float y; CRGB c; };
+P a = { 1, 2.5, CRGB::Red };
+void bump(P p) { p.x = 99; }
+void bumpRef(P &p) { p.x = 77; }
+void setup() {
+  P b = a; b.x = 5; b.c.g = 200;
+  Serial.println(a.x); Serial.println(b.x); Serial.println(a.c.g); Serial.println(b.c.g);
+  bump(a); Serial.println(a.x);
+  bumpRef(a); Serial.println(a.x);
+  P arr[3]; arr[1] = a; arr[1].x = 3; Serial.println(a.x); Serial.println(arr[1].x); Serial.println(arr[1].y);
+}`, '1\n5\n0\n200\n1\n77\n77\n3\n2.50\n'],
+['CRGB semantics', `
+CRGB leds[8];
+void setup() {
+  leds[0] = CRGB::Red; leds[1] = leds[0]; leds[1].g = 9;
+  Serial.println(leds[0].g);
+  leds[0] += CRGB(10, 250, 0); Serial.println(leds[0].r); Serial.println(leds[0].g);
+  leds[2] = 0x102030; Serial.println(leds[2].b);
+  leds[2] %= 128; Serial.println(leds[2].b);
+  leds[3] = CHSV(0, 255, 255); Serial.println(leds[3].r);
+  if (leds[4]) Serial.println("lit"); else Serial.println("dark");
+  if (leds[0] == CRGB(255, 250, 0)) Serial.println("eq");
+  leds[5].setRGB(300, 2, 3); Serial.println(leds[5].r);
+  CRGB c = leds[2]; c.r = 200; Serial.println(leds[2].r);
+  fill_solid(leds + 6, 2, CRGB::Blue); Serial.println(leds[5].b); Serial.println(leds[7].b);
+  CRGB *p = &leds[6]; p[1] = CRGB::Green; Serial.println(leds[7].g);
+  Serial.println(sizeof(leds) / sizeof(leds[0]));
+  leds[1].r += 10; Serial.println(leds[1].r);
+  leds[random8(8)] |= CHSV(10, 20, 30);
+}`, '0\n255\n250\n48\n25\n255\ndark\neq\n44\n9\n3\n255\n128\n8\n9\n'],
+['classes, ctors, methods, enums', `
+enum Color { RED, GREEN = 5, BLUE };
+enum class Mode : uint8_t { Off, On };
+class Counter {
+  public:
+    Counter(int start, int step = 2) : value(start), step(step) {}
+    void tick() { value += step; total++; }
+    int get() const { return value; }
+    static int total;
+  private:
+    int value; int step;
+};
+int Counter::total = 0;
+class Blinker { public: Blinker(); bool state; void flip(); };
+Blinker::Blinker() : state(false) {}
+void Blinker::flip() { state = !state; }
+Counter c1(10), c2(1, 10);
+Blinker bl;
+void setup() {
+  c1.tick(); c2.tick(); c2.tick();
+  Serial.println(c1.get()); Serial.println(c2.get()); Serial.println(Counter::total);
+  Serial.println(BLUE); Serial.println((int)Mode::On);
+  bl.flip(); Serial.println(bl.state);
+  Mode m = Mode::On; if (m == Mode::On) Serial.println("on");
+}`, '12\n21\n3\n6\n1\n1\non\n'],
+['overloads, defaults, fn pointers, arrays', `
+int twice(int a) { return a * 2; }
+float twice(float a, float b) { return a * b * 2; }
+int add(int a, int b = 10) { return a + b; }
+void hello() { Serial.println("hello"); }
+void bye() { delay(5); Serial.println("bye"); }
+void (*fns[])() = { hello, bye };
+int grid[2][3] = { {1, 2, 3}, {4, 5, 6} };
+const uint8_t table[] PROGMEM = { 10, 20, 30 };
+#define COUNT(a) (sizeof(a) / sizeof(a[0]))
+void setup() {
+  Serial.println(twice(4)); Serial.println(twice(1.5, 2.0)); Serial.println(add(1)); Serial.println(add(1, 2));
+  for (uint8_t i = 0; i < COUNT(fns); i++) fns[i]();
+  Serial.println(grid[1][2]); Serial.println(COUNT(table)); Serial.println(pgm_read_byte(&table[1]));
+  int total = 0; for (auto v : table) total += v; Serial.println(total);
+  uint8_t buf[5] = {1, 2}; Serial.println(buf[1] + buf[4]);
+  long big = 100000L * 3; Serial.println(big);
+  unsigned long t0 = millis(); delay(120); Serial.println(millis() - t0 >= 120 ? "waited" : "early");
+  Serial.printf("%d %05.1f %s %x\\n", 42, 3.14159, "ok", 255);
+  Serial.println(map(512, 0, 1023, 0, 255)); Serial.println(constrain(300, 0, 255));
+  Serial.println((uint8_t)300); Serial.println(1 << 4 | 3); Serial.println(0xFF & ~0x0F);
+  Serial.println('A'); Serial.println((int)'A'); Serial.println(3.14159, 3);
+}`, '8\n6.00\n11\n3\nhello\nbye\n6\n3\n20\n60\n2\n300000\nwaited\n42 003.1 ok ff\n127\n255\n44\n19\n240\nA\n65\n3.142\n'],
+['palettes & helpers', `
+CRGB leds[16];
+CRGBPalette16 pal = RainbowColors_p;
+DEFINE_GRADIENT_PALETTE(bw_gp) { 0, 0, 0, 0, 255, 255, 255, 255 };
+void setup() {
+  CRGB c = ColorFromPalette(pal, 0); Serial.println(c.r);
+  pal = CRGBPalette16(CRGB::Black, CRGB::White);
+  Serial.println(pal[15].r);
+  pal = bw_gp; Serial.println(pal[15].g);
+  fill_rainbow(leds, 16, 0, 16); Serial.println(leds[0].r > 200 ? "red" : "no");
+  fadeToBlackBy(leds, 16, 255); Serial.println(leds[0].r);
+  CRGBArray<8> set; set(0, 3) = CRGB::Blue; set(4, 7).fill_solid(CRGB::Red); Serial.println(set[3].b); Serial.println(set[4].r);
+  for (CRGB &px : set) px.nscale8(128);
+  Serial.println(set[4].r);
+  Serial.println(qadd8(200, 100)); Serial.println(qsub8(5, 10)); Serial.println(scale8(255, 128)); Serial.println(sin8(64)); Serial.println(lerp8by8(0, 100, 128));
+}`, '255\n255\n255\nred\n0\n255\n255\n128\n255\n0\n128\n255\n50\n'],
+];
+
+function runSketch(code, stopAt) {
+  return new Promise((resolve) => {
+    const r = { serial: '', frames: 0, peak: 0, n: 0, error: null, line: 0, warn: [] };
+    let js;
+    try { js = LEDSim.compile(code).js; }
+    catch (e) { r.error = 'COMPILE: ' + e.message; r.line = e.line || 0; resolve(r); return; }
+    const host = {
+      post(m) {
+        if (m.type === 'serial') r.serial += m.text;
+        else if (m.type === 'frame') { r.frames++; r.n = m.n; for (const v of m.buf) if (v > r.peak) r.peak = v; }
+        else if (m.type === 'warn') r.warn.push(m.message);
+        else if (m.type === 'error') { r.error = m.message; r.line = m.line; r.js = js; resolve(r); }
+        else if (m.type === 'done') resolve(r);
+      },
+      onmessage: null,
+    };
+    try { LED_RUNTIME(host); host.onmessage({ type: 'run', code: js + '\n//# sourceURL=sketch.ino', speed: 400, stopAt }); }
+    catch (e) { r.error = 'HOST: ' + e.message; resolve(r); }
+    setTimeout(() => { if (!r.error) { r.error = 'TIMEOUT'; resolve(r); } }, 8000);
+  });
+}
+
+(async function () {
+  const lines = [];
+  let fails = 0;
+  for (const [name, code, expect] of UNIT) {
+    const r = await runSketch(code, 400);
+    const ok = !r.error && r.serial === expect;
+    if (!ok) fails++;
+    lines.push((ok ? 'PASS ' : 'FAIL ') + name + (r.error ? `  [${r.error} @ line ${r.line}]` : ''));
+    if (!ok) {
+      lines.push('  expected: ' + JSON.stringify(expect));
+      lines.push('  actual:   ' + JSON.stringify(r.serial));
+      if (r.js && r.line) lines.push('  js: ' + (r.js.split('\n')[r.line - 1] || '').slice(0, 600));
+    }
+  }
+  for (const ex of LED_EXAMPLES) {
+    const r = await runSketch(ex.code, 9000);
+    // With no led-audio frames, the audio example only shows its dim "no link" breathing.
+    const minPeak = /led-audio/.test(ex.name) ? 1 : 15;
+    const ok = !r.error && r.frames > 3 && r.peak >= minPeak && r.n === 60 && !r.warn.length;
+    if (!ok) fails++;
+    lines.push((ok ? 'PASS ' : 'FAIL ') + 'example: ' + ex.name + `  frames=${r.frames} peak=${r.peak} n=${r.n}` +
+      (r.error ? `  [${r.error} @ line ${r.line}]` : '') + (r.warn.length ? '  warn=' + r.warn.join('|') : '') + (r.serial ? '  serial=' + JSON.stringify(r.serial.slice(0, 90)) : ''));
+    if (r.js && r.line) lines.push('  js: ' + (r.js.split('\n')[r.line - 1] || '').slice(0, 600));
+  }
+  lines.push(fails ? `${fails} FAILED` : 'ALL PASSED');
+  document.getElementById('out').textContent = lines.join('\n');
+  document.title = 'done';
+})();
+</script>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED Strip Simulator</title>
+<style>
+  :root {
+    --bg: #0d0f13; --panel: #151820; --panel-2: #1b1f29; --line: #272c38; --line-2: #343a49;
+    --text: #e4e7ee; --muted: #8a93a6; --faint: #5d6576;
+    --accent: #35d6a4; --accent-ink: #062018; --warn: #ffb454; --err: #ff6b6b; --info: #6cb6ff;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --lh: 20px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+  body { min-height: 100vh; }
+  button, select, input { font: inherit; color: inherit; }
+  h1, h2 { margin: 0; font-weight: 600; }
+
+  .top { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { font-size: 16px; letter-spacing: .01em; }
+  .brand .sub { color: var(--muted); font-size: 12px; }
+  .pips { display: inline-flex; gap: 3px; transform: translateY(-1px); }
+  .pips i { width: 7px; height: 7px; border-radius: 2px; }
+  .pips i:nth-child(1) { background: #ff5a5a; box-shadow: 0 0 8px #ff5a5a; }
+  .pips i:nth-child(2) { background: #46e08b; box-shadow: 0 0 8px #46e08b; }
+  .pips i:nth-child(3) { background: #5aa2ff; box-shadow: 0 0 8px #5aa2ff; }
+  .stats { display: flex; gap: 22px; margin-left: auto; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; min-width: 76px; }
+  .stat .k { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; }
+  .stat .v { font: 13px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .state { display: inline-flex; align-items: center; gap: 6px; }
+  .state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .state[data-s="running"]::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .state[data-s="paused"]::before, .state[data-s="busy"]::before { background: var(--warn); }
+  .state[data-s="error"]::before { background: var(--err); }
+
+  body.embed { min-height: 0; }
+  body.embed .brand, body.embed .cols, body.embed #st-audio-wrap, body.embed #layout, body.embed #matrix-opts { display: none; }
+  body.embed .top { padding: 3px 12px; gap: 12px; }
+  body.embed .stats { margin-left: 0; gap: 18px; }
+  body.embed .stat { flex-direction: row; gap: 6px; align-items: baseline; min-width: 0; }
+  body.embed main { padding: 0; }
+  body.embed .card { border: 0; border-radius: 0; }
+  body.embed .card > .bar { display: none; }
+  body.embed .canvas-wrap { border-radius: 0; }
+  main { padding: 16px 20px 28px; display: grid; gap: 16px; max-width: 1640px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .bar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-right: 4px; }
+  .spacer { flex: 1; }
+  .btn { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 11px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: #4a5266; background: #212633; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); padding: 5px 8px; }
+  .btn.ghost:hover { color: var(--text); background: var(--panel-2); }
+  :focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+  select, input[type="number"] { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 8px; }
+  input[type="number"] { width: 62px; }
+  label.opt { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  label.opt input { accent-color: var(--accent); }
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 7px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 5px 12px; cursor: pointer; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--line-2); }
+  .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
+
+  /* stage */
+  .canvas-wrap { position: relative; background: radial-gradient(120% 140% at 50% 0%, #0c0d11 0%, #060709 70%); border-radius: 0 0 10px 10px; overflow: hidden; }
+  #leds { display: block; width: 100%; }
+  #tip { position: absolute; pointer-events: none; background: #000c; border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 8px; font: 12px var(--mono); white-space: nowrap; transform: translate(-50%, -135%); display: none; }
+  #tip i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1px solid #fff3; }
+  .strips { color: var(--faint); font: 12px var(--mono); }
+
+  /* workspace */
+  .cols { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 980px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .side { display: grid; gap: 16px; min-width: 0; }
+
+  #error { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; background: #3a1c1f; border-bottom: 1px solid #5c2a2e; color: #ffd0d0; font-size: 13px; cursor: pointer; }
+  #error[hidden] { display: none; }
+  #error b { font: 600 12px var(--mono); color: var(--err); white-space: nowrap; }
+
+  .editor { display: flex; height: 600px; min-height: 220px; resize: vertical; overflow: hidden; border-radius: 0 0 10px 10px; background: #0f1116; font: 13px/var(--lh) var(--mono); font-variant-ligatures: none; }
+  #gutter { margin: 0; padding: 10px 8px 10px 12px; text-align: right; color: var(--faint); user-select: none; overflow: hidden; min-width: 46px; border-right: 1px solid var(--line); font: inherit; }
+  .code-wrap { position: relative; flex: 1; min-width: 0; }
+  #hl, #code { position: absolute; inset: 0; margin: 0; padding: 10px 14px; border: 0; font: inherit; white-space: pre; tab-size: 2; overflow: auto; letter-spacing: 0; }
+  #hl { pointer-events: none; overflow: hidden; color: #cfd5e2; }
+  #code { resize: none; background: transparent; color: transparent; caret-color: #fff; outline: none; }
+  #code::selection { background: #3b6fd055; }
+  #errline { position: absolute; left: 0; right: 0; height: var(--lh); background: #ff6b6b22; border-left: 3px solid var(--err); pointer-events: none; display: none; }
+  .tk-c { color: #5f6b7d; font-style: italic; } .tk-s { color: #e6c07b; } .tk-p { color: #c792ea; } .tk-n { color: #f78c6c; }
+  .tk-k { color: #7aa2f7; } .tk-t { color: #4fd6be; } .tk-f { color: #dcdcaa; } .tk-d { color: #ff9e64; }
+
+  #serial { margin: 0; padding: 10px 12px; height: 230px; overflow: auto; font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; color: #c8ffd9; background: #0b0d10; border-radius: 0 0 10px 10px; }
+  #serial:empty::before { content: "Serial.print() output appears here."; color: var(--faint); font-family: var(--sans); }
+
+  #inputs { padding: 10px 12px; display: grid; gap: 10px; }
+  .empty { color: var(--faint); font-size: 13px; }
+  .pin { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; align-items: center; }
+  .pin .name { font: 12.5px var(--mono); }
+  .pin .hint { color: var(--faint); font-size: 12px; }
+  .pin .val { font: 12.5px var(--mono); min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .pin input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .pin .press { justify-self: start; user-select: none; touch-action: none; }
+  .pin .press.down { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .lamp { width: 12px; height: 12px; border-radius: 50%; background: #2a2e38; border: 1px solid var(--line-2); justify-self: start; }
+  .lamp.on { background: #ffd24a; box-shadow: 0 0 10px #ffd24a; border-color: #ffd24a; }
+
+  details.card summary { cursor: pointer; padding: 9px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  details.card .body { padding: 0 14px 12px; color: var(--muted); font-size: 13px; }
+  details.card .body p { margin: 8px 0; }
+  details.card code { font: 12px var(--mono); color: #b9c3d6; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .drop main { outline: 2px dashed var(--accent); outline-offset: -8px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="pips" aria-hidden="true"><i></i><i></i><i></i></span>
+    <h1>LED Strip Simulator</h1>
+    <span class="sub">ESP32 sketches · FastLED · Adafruit NeoPixel · <a href="designer.html" style="color: var(--info)">Audio designer →</a></span>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="k">Status</span><span class="v state" id="st-state" data-s="idle">Idle</span></div>
+    <div class="stat"><span class="k">Sim time</span><span class="v" id="st-time">0.0 s</span></div>
+    <div class="stat"><span class="k">show() rate</span><span class="v" id="st-fps">–</span></div>
+    <div class="stat"><span class="k">Est. draw @ 5 V</span><span class="v" id="st-power">–</span></div>
+    <div class="stat"><span class="k">LEDs</span><span class="v" id="st-leds">60</span></div>
+    <div class="stat" id="st-audio-wrap"><span class="k">Audio bridge</span><span class="v state" id="st-audio" data-s="idle" title="led-audio.exe on ws://localhost:8000 feeds Serial input">Offline</span></div>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <div class="bar">
+      <h2>Strip</h2>
+      <select id="layout" aria-label="LED layout shape">
+        <option value="strip">Straight strip</option>
+        <option value="ring">Circle</option>
+        <option value="square">Square</option>
+        <option value="triangle">Triangle</option>
+        <option value="hexagon">Hexagon</option>
+        <option value="star">Star</option>
+        <option value="heart">Heart</option>
+        <option value="matrix">Matrix (grid)</option>
+      </select>
+      <span id="matrix-opts" hidden>
+        <label class="opt">Columns <input type="number" id="cols" min="1" max="120" value="10"></label>
+        <label class="opt"><input type="checkbox" id="serp" checked> Serpentine</label>
+      </span>
+      <label class="opt"><input type="checkbox" id="diffuse"> Diffuser</label>
+      <label class="opt" title="Real LEDs look much brighter at low values than a monitor shows. On = compensate so dim values look like they do on a strip."><input type="checkbox" id="gamma" checked> Eye-accurate brightness</label>
+      <span class="spacer"></span>
+      <span class="strips" id="strips"></span>
+    </div>
+    <div class="canvas-wrap" id="wrap">
+      <canvas id="leds"></canvas>
+      <div id="tip"></div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section class="card">
+      <div class="bar">
+        <button class="btn primary" id="run" title="Compile and run (Ctrl+Enter)">▶ Run</button>
+        <button class="btn" id="pause" disabled>Pause</button>
+        <button class="btn" id="stop" disabled>Stop</button>
+        <label class="opt">Speed
+          <select id="speed">
+            <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="10">10×</option>
+          </select>
+        </label>
+        <span class="spacer"></span>
+        <select id="examples" aria-label="Load an example"></select>
+        <button class="btn" id="open">Open .ino…</button>
+        <button class="btn" id="save">Save</button>
+        <input type="file" id="file" accept=".ino,.cpp,.h,.hpp,.c,.txt" hidden>
+      </div>
+      <div id="error" hidden><b id="error-where"></b><span id="error-msg"></span></div>
+      <div class="editor">
+        <pre id="gutter" aria-hidden="true"></pre>
+        <div class="code-wrap">
+          <div id="errline"></div>
+          <pre id="hl" aria-hidden="true"></pre>
+          <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Sketch source"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card">
+        <div class="bar"><h2>Serial monitor</h2><span class="spacer"></span><button class="btn ghost" id="serial-clear">Clear</button></div>
+        <pre id="serial"></pre>
+      </section>
+      <section class="card">
+        <div class="bar"><h2>Pins</h2></div>
+        <div id="inputs"><div class="empty">Pins your sketch touches show up here: <code>digitalRead</code> becomes a button, <code>analogRead</code> a 0–4095 slider, <code>digitalWrite</code> a lamp.</div></div>
+      </section>
+      <details class="card">
+        <summary>What the simulator understands</summary>
+        <div class="body">
+          <p>Paste a normal Arduino sketch. It is translated to JavaScript and run against a virtual clock, so <code>delay()</code>, <code>millis()</code> and <code>EVERY_N_MILLISECONDS</code> keep real timing, and <code>show()</code> costs what a WS2812 costs (30&nbsp;µs per pixel).</p>
+          <p><b>C++:</b> functions, overloads, default arguments, structs and classes with constructors and methods, enums, typedefs, function-pointer tables, arrays, <code>static</code> locals, <code>#define</code> / <code>#if</code>, integer division, and <code>uint8_t</code>-style wraparound. Not supported: templates, lambdas, <code>goto</code>, raw pointer tricks beyond <code>leds + n</code> and <code>&amp;leds[n]</code>, and Arduino <code>String</code> methods.</p>
+          <p><b>FastLED:</b> <code>CRGB</code> / <code>CHSV</code> and their operators, named colours, <code>fill_*</code>, <code>fadeToBlackBy</code>, <code>blur1d</code>, <code>beatsin*</code>, <code>sin8</code> family, <code>random8/16</code>, <code>inoise8</code>, palettes and gradient palettes, <code>CRGBArray</code> ranges, brightness and power limiting.</p>
+          <p><b>NeoPixel:</b> <code>setPixelColor</code>, <code>Color</code>, <code>ColorHSV</code>, <code>gamma32</code>, <code>fill</code>, <code>rainbow</code>, RGBW types.</p>
+          <p><b>Not simulated:</b> WiFi, Bluetooth, I²C/SPI devices, files, FreeRTOS tasks. A sketch that needs them stops with a message naming what was missing. Colour correction and dithering are accepted but ignored.</p>
+          <p>Current is an estimate (20&nbsp;mA per channel at full, 1&nbsp;mA idle per pixel) — good for sizing a supply, not a measurement.</p>
+        </div>
+      </details>
+      <details class="card">
+        <summary>Music-reactive sketches</summary>
+        <div class="body">
+          <p>Run <code>led-audio.exe</code> (in this folder). It captures whatever Windows is playing — no microphone, no virtual cable — and sends a 19-byte frame every 10&nbsp;ms. "Audio bridge" in the header turns green when it's connected.</p>
+          <p>The frames arrive on <code>Serial</code>, exactly as they would on a real ESP32, so the same sketch runs on both: <code>0xFF</code>, level, beat counter, then 16 bands from bass to treble, each 0–254. Start from the "Audio spectrum" example.</p>
+          <p>Real board: close the Arduino serial monitor, then run <code>led-audio.exe --port COM5</code> (your port; <code>--baud</code> defaults to 115200, matching <code>Serial.begin(115200)</code>). The sim and the board can run at the same time.</p>
+          <p>The serial receive buffer is 256 bytes, as on the ESP32: a sketch that blocks for more than ~130&nbsp;ms between reads drops frames here too.</p>
+        </div>
+      </details>
+    </aside>
+  </div>
+</main>
+
+<script src="transpiler.js"></script>
+<script src="runtime.js"></script>
+<script src="examples.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

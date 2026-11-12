@@ -1,0 +1,277 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<pre id="out">running…</pre>
+<script src="transpiler.js"></script>
+<script src="runtime.js"></script>
+<script>
+/* Second self-test: idioms from widely used sketches, plus error reporting. */
+const CASES = [
+['ocean-style layered palettes', { frames: true }, `
+#include <FastLED.h>
+FASTLED_USING_NAMESPACE
+#define DATA_PIN 5
+#define NUM_LEDS 60
+#define MAX_POWER_MILLIAMPS 500
+#define LED_TYPE WS2812B
+#define COLOR_ORDER GRB
+CRGB leds[NUM_LEDS];
+CRGBPalette16 pal_1 = { 0x000507, 0x000409, 0x00030B, 0x00030D, 0x000210, 0x000212, 0x000114, 0x000117,
+                        0x000019, 0x00001C, 0x000026, 0x000031, 0x00003B, 0x000046, 0x14554B, 0x28AA50 };
+void setup() {
+  delay(30);
+  FastLED.addLeds<LED_TYPE,DATA_PIN,COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.setMaxPowerInVoltsAndMilliamps( 5, MAX_POWER_MILLIAMPS);
+}
+void loop() {
+  EVERY_N_MILLISECONDS( 20) { ocean_loop(); FastLED.show(); }
+}
+void ocean_loop() {
+  static uint16_t sCIStart1, sCIStart2;
+  static uint32_t sLastms = 0;
+  uint32_t ms = GET_MILLIS();
+  uint32_t deltams = ms - sLastms;
+  sLastms = ms;
+  uint16_t speedfactor1 = beatsin16(3, 179, 269);
+  uint32_t deltams1 = (deltams * speedfactor1) / 256;
+  sCIStart1 += (deltams1 * beatsin88(1011,10,13));
+  sCIStart2 -= (deltams1 * beatsin88(777,8,11));
+  fill_solid( leds, NUM_LEDS, CRGB( 2, 6, 10));
+  one_layer( pal_1, sCIStart1, beatsin16( 3, 11 * 256, 14 * 256), beatsin8( 10, 70, 130), 0-beat16( 301) );
+  one_layer( pal_1, sCIStart2, 6 * 256, beatsin8( 9, 40, 80), beat16( 503));
+  whitecaps();
+}
+void one_layer( CRGBPalette16& p, uint16_t cistart, uint16_t wavescale, uint8_t bri, uint16_t ioff) {
+  uint16_t ci = cistart;
+  uint16_t waveangle = ioff;
+  uint16_t wavescale_half = (wavescale / 2) + 20;
+  for( uint16_t i = 0; i < NUM_LEDS; i++) {
+    waveangle += 250;
+    uint16_t s16 = sin16( waveangle ) + 32768;
+    uint16_t cs = scale16( s16 , wavescale_half ) + wavescale_half;
+    ci += cs;
+    uint16_t sindex16 = sin16( ci) + 32768;
+    uint8_t sindex8 = scale16( sindex16, 240);
+    CRGB c = ColorFromPalette( p, sindex8, bri, LINEARBLEND);
+    leds[i] += c;
+  }
+}
+void whitecaps() {
+  uint8_t basethreshold = beatsin8( 9, 55, 65);
+  uint8_t wave = beat8( 7 );
+  for( uint16_t i = 0; i < NUM_LEDS; i++) {
+    uint8_t threshold = scale8( sin8( wave), 20) + basethreshold;
+    wave += 7;
+    uint8_t l = leds[i].getAverageLight();
+    if( l > threshold) {
+      uint8_t overage = l - threshold;
+      uint8_t overage2 = qadd8( overage, overage);
+      leds[i] += CRGB( overage, overage2, qadd8( overage2, overage2));
+    }
+    leds[i].blue = scale8( leds[i].blue,  145);
+    leds[i].green= scale8( leds[i].green, 200);
+    leds[i] |= CRGB( 2, 5, 7);
+  }
+}`],
+['scanner + palette example idioms', { frames: true, serial: 'ok 3 1\n' }, `
+#include <FastLED.h>
+#define NUM_LEDS 60
+#define UPDATES_PER_SECOND 100
+CRGB leds[NUM_LEDS];
+CRGBPalette16 currentPalette;
+TBlendType    currentBlending;
+extern CRGBPalette16 myPalette;
+extern const TProgmemPalette16 myRWB_p PROGMEM;
+const int ledPin = 2;
+bool flags[10] = {false};
+void IRAM_ATTR onButton() { }
+void fadeall() { for(int i = 0; i < NUM_LEDS; i++) { leds[i].nscale8(250); } }
+void setup() {
+  delay( 30 );
+  Serial.begin(57600);
+  FastLED.addLeds<WS2811, 5, RGB>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.setBrightness(  64 );
+  currentPalette = RainbowColors_p;
+  currentBlending = LINEARBLEND;
+  attachInterrupt(digitalPinToInterrupt(4), onButton, FALLING);
+  random16_add_entropy(random());
+  Serial.println(String("ok ") + sizeof(CRGB) + " " + String(flags[3] ? 0 : 1));
+}
+void FillLEDsFromPaletteColors( uint8_t colorIndex) {
+  uint8_t brightness = 255;
+  for( int i = 0; i < NUM_LEDS; ++i) {
+    leds[i] = ColorFromPalette( currentPalette, colorIndex, brightness, currentBlending);
+    colorIndex += 3;
+  }
+}
+void SetupPurpleAndGreenPalette() {
+  CRGB purple = CHSV( HUE_PURPLE, 255, 255);
+  CRGB green  = CHSV( HUE_GREEN, 255, 255);
+  CRGB black  = CRGB::Black;
+  currentPalette = CRGBPalette16( green,  green,  black,  black, purple, purple, black,  black,
+                                  green,  green,  black,  black, purple, purple, black,  black );
+}
+void SetupStripedPalette() {
+  fill_solid( currentPalette, 16, CRGB::Black);
+  currentPalette[0] = CRGB::White;
+  currentPalette[4] = CRGB::White;
+  for( int i = 8; i < 16; ++i) { currentPalette[i] = CHSV( random8(), 255, random8()); }
+}
+void ChangePalettePeriodically() {
+  uint8_t secondHand = (millis() / 250) % 60;
+  static uint8_t lastSecond = 99;
+  if( lastSecond != secondHand) {
+    lastSecond = secondHand;
+    if( secondHand ==  0)  { currentPalette = RainbowColors_p;       currentBlending = LINEARBLEND; }
+    if( secondHand ==  2)  { currentPalette = RainbowStripeColors_p; currentBlending = NOBLEND;  }
+    if( secondHand ==  4)  { SetupPurpleAndGreenPalette();           currentBlending = LINEARBLEND; }
+    if( secondHand ==  6)  { SetupStripedPalette();                  currentBlending = NOBLEND; }
+    if( secondHand ==  8)  { currentPalette = myRWB_p;               currentBlending = LINEARBLEND; }
+  }
+}
+void scan() {
+  static uint8_t hue = 0;
+  for(int i = 0; i < NUM_LEDS; i++) { leds[i] = CHSV(hue++, 255, 255); FastLED.show(); fadeall(); delay(2); }
+  for(int i = (NUM_LEDS)-1; i >= 0; i--) { leds[i] = CHSV(hue++, 255, 255); FastLED.show(); fadeall(); delay(2); }
+  memmove(&leds[1], &leds[0], (NUM_LEDS - 1) * sizeof(CRGB));
+}
+void loop() {
+  ChangePalettePeriodically();
+  static uint8_t startIndex = 0;
+  startIndex = startIndex + 1;
+  FillLEDsFromPaletteColors( startIndex);
+  FastLED.show();
+  FastLED.delay(1000 / UPDATES_PER_SECOND);
+  EVERY_N_SECONDS(2) { scan(); }
+}
+const TProgmemPalette16 myRWB_p PROGMEM = {
+  CRGB::Red, CRGB::Gray, CRGB::Blue, CRGB::Black, CRGB::Red, CRGB::Gray, CRGB::Blue, CRGB::Black,
+  CRGB::Red, CRGB::Red, CRGB::Gray, CRGB::Gray, CRGB::Blue, CRGB::Blue, CRGB::Black, CRGB::Black };`],
+['classic NeoPixel wheel', { frames: true }, `
+#include <Adafruit_NeoPixel.h>
+#ifdef __AVR__
+  #include <avr/power.h>
+#endif
+#define PIN 6
+#define NUMPIXELS 60
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+void setup() {
+  #if defined (__AVR_ATtiny85__)
+    if (F_CPU == 16000000) clock_prescale_set(clock_div_1);
+  #endif
+  strip.begin();
+  strip.setBrightness(50);
+  strip.show();
+}
+void loop() {
+  rainbowCycle(1);
+  for (int i = 0; i < NUMPIXELS; i++) { strip.setPixelColor(i, strip.Color(0, 150, 0)); strip.show(); delay(1); }
+}
+void rainbowCycle(uint8_t wait) {
+  uint16_t i, j;
+  for(j=0; j<256*2; j++) {
+    for(i=0; i< strip.numPixels(); i++) {
+      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+    }
+    strip.show();
+    delay(wait);
+  }
+}
+uint32_t Wheel(byte WheelPos) {
+  WheelPos = 255 - WheelPos;
+  if(WheelPos < 85) { return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3); }
+  if(WheelPos < 170) { WheelPos -= 85; return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3); }
+  WheelPos -= 170;
+  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}`],
+['busy-wait on millis terminates', { serial: 'done 50\n' }, `
+void setup() {
+  unsigned long t0 = millis();
+  while (millis() - t0 < 50) { }
+  Serial.print("done "); Serial.println(millis() - t0);
+}
+void loop() { delay(100); }`],
+['serial RX: frame parsing and 256-byte overflow', { serial: 'n=300 avail=256 first=255 sum=32895 peek=-1\n', rx: Array.from({ length: 300 }, (_, i) => i < 256 ? (i === 0 ? 255 : i) : 7) }, `
+void setup() {
+  Serial.begin(115200);
+  delay(50);
+  int n = Serial.available();
+  int first = Serial.read();
+  long sum = first;
+  while (Serial.available()) sum += Serial.read();
+  Serial.print("n=300 avail="); Serial.print(n);
+  Serial.print(" first="); Serial.print(first);
+  Serial.print(" sum="); Serial.print(sum);
+  Serial.print(" peek="); Serial.println(Serial.peek());
+}
+void loop() { delay(100); }`],
+['error: syntax, with line', { error: /expected ';'/, line: 4 }, `
+void setup() {
+  int x = 5
+  x++;
+}
+void loop() {}`],
+['error: out-of-range index, with line', { error: /out of range|past the end/, line: 5 }, `
+#include <FastLED.h>
+CRGB leds[10];
+void setup() { FastLED.addLeds<WS2812B, 5, GRB>(leds, 10); }
+void loop() { for (int i = 0; i <= 10; i++) { leds[i] = CRGB::Red; }
+  FastLED.show(); delay(10); }`],
+['error: unsupported library', { error: /WiFi.*not available/, line: 3 }, `
+#include <WiFi.h>
+void setup() { WiFi.begin("ssid", "pw"); }
+void loop() {}`],
+['error: unknown type', { error: /unknown type 'hw_timer_t'/, line: 2 }, `
+hw_timer_t *timer = NULL;
+void setup() {}
+void loop() {}`],
+['warning: divide by zero', { warn: /division by zero/ }, `
+int zero = 0;
+void setup() { int x = 10 / zero; Serial.println(x); }
+void loop() { delay(50); }`],
+];
+
+function runSketch(code, stopAt, rx) {
+  return new Promise((resolve) => {
+    const r = { serial: '', frames: 0, peak: 0, error: null, line: 0, warn: [] };
+    let js;
+    try { js = LEDSim.compile(code).js; }
+    catch (e) { r.error = e.message; r.line = e.line || 0; r.compile = true; resolve(r); return; }
+    const host = {
+      post(m) {
+        if (m.type === 'serial') r.serial += m.text;
+        else if (m.type === 'frame') { r.frames++; for (const v of m.buf) if (v > r.peak) r.peak = v; }
+        else if (m.type === 'warn') r.warn.push(m.message);
+        else if (m.type === 'error') { r.error = m.message; r.line = m.line; r.js = js; resolve(r); }
+        else if (m.type === 'done') resolve(r);
+      },
+      onmessage: null,
+    };
+    LED_RUNTIME(host);
+    if (rx) host.onmessage({ type: 'rx', bytes: rx });
+    host.onmessage({ type: 'run', code: js + '\n//# sourceURL=sketch.ino', speed: 400, stopAt });
+    setTimeout(() => { if (!r.error) { r.error = 'TIMEOUT'; resolve(r); } }, 8000);
+  });
+}
+(async function () {
+  const lines = [];
+  let fails = 0;
+  for (const [name, want, code] of CASES) {
+    const r = await runSketch(code, 5000, want.rx);
+    let ok = true, why = '';
+    if (want.error) { ok = !!r.error && want.error.test(r.error) && r.line === want.line; why = `error=${JSON.stringify(r.error)} line=${r.line}`; }
+    else {
+      if (r.error) { ok = false; why = `[${r.error} @ line ${r.line}]`; }
+      if (want.frames && !(r.frames > 3 && r.peak > 15)) { ok = false; why += ` frames=${r.frames} peak=${r.peak}`; }
+      if (want.serial !== undefined && r.serial !== want.serial) { ok = false; why += ` serial=${JSON.stringify(r.serial)}`; }
+      if (want.warn && !r.warn.some(w => want.warn.test(w))) { ok = false; why += ` warn=${JSON.stringify(r.warn)}`; }
+    }
+    if (!ok) fails++;
+    lines.push((ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : '  ' + why));
+    if (!ok && r.js && r.line) lines.push('  js: ' + (r.js.split('\n')[r.line - 1] || '').slice(0, 500));
+  }
+  lines.push(fails ? `${fails} FAILED` : 'ALL PASSED');
+  document.getElementById('out').textContent = lines.join('\n');
+  document.title = 'done';
+})();
+</script>
