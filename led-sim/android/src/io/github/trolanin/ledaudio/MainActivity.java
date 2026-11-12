@@ -54,9 +54,6 @@ public final class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(20), dp(20), dp(20), dp(20));
 
-        TextView title = text("LED Audio", 26);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        col.addView(title);
         col.addView(text("Sends whatever this phone is playing to the LED designer open in this phone's browser, "
                 + "the same way led-audio.exe does on a PC.", 15));
 
@@ -89,7 +86,7 @@ public final class MainActivity extends Activity {
         col.addView(text("How to use\n"
                 + "1. Tap Start and allow sharing. Android shows a screen-sharing prompt because that's how it "
                 + "grants audio capture; no video is recorded.\n"
-                + "2. Play music in any app.\n"
+                + "2. Play music in a music app (see below).\n"
                 + "3. Open the designer. If Chrome asks to let the page access other apps and services on this device, "
                 + "allow it. The audio badge should say \"Live\".\n\n"
                 + "Use a music app (YouTube and YouTube Music allow capture). Some apps block capture of their sound; "

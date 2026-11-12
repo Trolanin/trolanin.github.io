@@ -849,7 +849,7 @@ setInterval(() => {
   const fresh = performance.now() - lastFrameT < 500;
   const s = !fresh ? 'idle' : frameKind === 'live' && performance.now() - lastLoudT > 3000 ? 'quiet' : frameKind;
   pill.dataset.s = s;
-  pill.textContent = s === 'live' ? `Live: your ${DEVICE}'s sound` : s === 'quiet' ? 'Live, but silent: play some music' : s === 'test' ? (srcMode !== 'auto' ? 'Test beat' : lnaDenied ? `Test beat (browser is blocking ${FEEDER})` : `Test beat (${FEEDER} not running)`) : srcMode === 'live' ? (lnaDenied ? `Browser is blocking ${FEEDER}` : `Waiting for ${FEEDER}…`) : 'No audio';
+  pill.textContent = s === 'live' ? `Live: your ${DEVICE}'s sound` : s === 'quiet' ? 'Live, but silent: play some music' : s === 'test' ? (srcMode !== 'auto' ? 'Test beat' : lnaDenied ? `Test beat (browser is blocking ${FEEDER})` : `Test beat (${ANDROID ? 'LED Audio app' : 'led-audio.exe'} not running)`) : srcMode === 'live' ? (lnaDenied ? `Browser is blocking ${FEEDER}` : `Waiting for ${FEEDER}…`) : 'No audio';
   $('get-app').hidden = !ANDROID || s === 'live' || s === 'quiet';
   pill.title = lnaDenied && !wsOpen && (s === 'test' || s === 'idle') ? LNA_TIP : s === 'test' && srcMode === 'auto' ? `Start ${FEEDER} and the lights will follow whatever your ${DEVICE} is playing.` : s === 'idle' && srcMode === 'live' ? `Start ${FEEDER}, or switch Audio to Test beat.` : '';
 }, 250);
