@@ -25,4 +25,10 @@ Browser tools, no build step: `designer.html` (design → generated FastLED .ino
   `esp32:esp32:esp32`), and `flash.ps1` uploads.
 - `led-audio.exe` (`led-audio.cpp`, Windows WASAPI loopback, built with `build.bat`/MSVC) streams
   19-byte audio frames to ws://localhost:8000 and/or a COM port.
+- `android/` is the LED Audio app (Java, Android 10+). It is the phone version of led-audio.exe: it captures
+  other apps' playback and serves the same frames on ws://127.0.0.1:8000. `Analyzer.java` must stay in step
+  with the analysis in `led-audio.cpp`. To build it, run `android\build-apk.ps1` on the owner's PC. It uses the
+  plain SDK tools, no Gradle, and writes `led-audio.apk` (which is committed so the site can serve it). Use no
+  lambdas: the build compiles against android.jar, which can't support them. The signing key stays out of this
+  repo. `android.html` is the install page.
 - The owner prefers native C++ tooling. Ask before switching languages or stacks to avoid an install.

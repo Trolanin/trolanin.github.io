@@ -116,6 +116,33 @@
   details.card .body p { margin: 8px 0; }
   details.card code { font: 12px var(--mono); color: #b9c3d6; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   .drop main { outline: 2px dashed var(--accent); outline-offset: -8px; }
+
+  /* ---------- touch screens: bigger targets ---------- */
+  @media (pointer: coarse) {
+    .btn { padding: 8px 13px; }
+    select, input[type="number"] { padding: 7px 9px; }
+    label.opt input[type="checkbox"] { width: 20px; height: 20px; }
+    .pin input[type="range"] { height: 28px; }
+  }
+
+  /* ---------- phones ---------- */
+  @media (max-width: 640px) {
+    .top { padding: 10px 12px; gap: 8px 16px; }
+    .brand { flex-wrap: wrap; row-gap: 2px; }
+    .stats { margin-left: 0; gap: 8px 16px; }
+    .stat { min-width: 0; }
+    main { padding: 10px 10px 24px; gap: 12px; }
+    .cols, .side { gap: 12px; }
+    .editor { height: 380px; }
+    #gutter { min-width: 34px; padding-left: 6px; }
+    #serial { height: 180px; }
+    /* Embedded in the designer: keep the status line to one row. */
+    body.embed .top { padding: 3px 10px; }
+    body.embed .stats { gap: 2px 14px; }
+    body.embed .stat:nth-child(n+4) { display: none; }
+    body.embed .stat .k { font-size: 9.5px; }
+    body.embed .stat .v { font-size: 12px; }
+  }
 </style>
 </head>
 <body>

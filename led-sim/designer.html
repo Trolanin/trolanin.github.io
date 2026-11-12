@@ -73,7 +73,8 @@
   canvas.levels { display: block; width: 100%; height: 72px; background: #10131a; border-radius: 6px; cursor: ns-resize; touch-action: none; }
 
   /* mood palettes */
-  .moods { display: grid; gap: 8px; }
+  .moods { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .mood, .mood > * { min-width: 0; }
   .moods .note { margin: 0; }
   .mood { border: 1px solid var(--line-2); border-radius: 8px; padding: 8px; display: grid; gap: 6px; }
   .mood.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
@@ -145,8 +146,10 @@
   .inline { display: inline-flex; gap: 8px; align-items: center; }
   .inline[hidden] { display: none; }
   @media (max-width: 980px) {
-    .col.right { order: -1; }
-    .stick { display: contents; }          /* narrow: only the preview stays pinned */
+    /* Narrow: preview and monitor go first, and only the preview stays pinned. Unwrapping the column
+       lets the preview stay pinned down the whole page instead of only within its own column. */
+    .col.right, .stick { display: contents; }
+    .stick > section { order: -1; }
     .stick > section:first-child { position: sticky; top: var(--hdr, 53px); z-index: 4; }
     .stick.unpinned > section:first-child { position: static; }
   }
@@ -189,6 +192,73 @@
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: var(--panel-2); border: 1px solid var(--line-2); padding: 8px 14px; border-radius: 8px; box-shadow: 0 6px 24px #0008; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
   .toast.show { opacity: 1; pointer-events: auto; }
   .toast .btn { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- touch screens: bigger targets ---------- */
+  @media (pointer: coarse) {
+    .btn { padding: 7px 12px; }
+    .btn.small { padding: 5px 10px; }
+    .btn.icon { padding: 6px 8px; }
+    select, input[type="number"], input[type="text"] { padding: 7px 9px; }
+    input.num { padding: 6px 7px; }
+    input[type="range"] { height: 28px; }
+    input[type="checkbox"] { width: 20px; height: 20px; }
+    .chev { width: 32px; height: 32px; font-size: 14px; }
+    .row { min-height: 40px; }
+    .pal-chip { width: 32px; height: 32px; }
+    .grip { height: 22px; }
+    /* Layer header on touch: name + dice + chevron on top, summary and actions underneath. */
+    .lhead { flex-wrap: wrap; row-gap: 2px; }
+    .lhead::after { content: ""; flex-basis: 100%; order: 3; }
+    .lhead .randbox { order: 1; }
+    .lhead > .btn:last-child { order: 2; }   /* the expand chevron */
+    .lhead .sum { display: block; order: 4; flex: 1 1 auto; padding-left: 30px; }
+    .lhead .acts { order: 5; margin-left: auto; }
+    .layer:hover .sum, .layer:focus-within .sum { display: block; }
+  }
+
+  /* ---------- phones ---------- */
+  @media (max-width: 640px) {
+    /* Header: one row you can swipe sideways, so it pins without eating the screen. */
+    .top { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding: 6px 10px; gap: 6px; }
+    .top::-webkit-scrollbar { display: none; }
+    .top > * { flex: 0 0 auto; order: 3; }
+    .top .spacer, .brand { display: none; }
+    /* Most-used first; swipe the bar for the rest. The fade hints that it scrolls. */
+    #undo, #redo { order: 1; }
+    #download, #copy { order: 2; }
+    .top { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); padding-right: 40px; }
+    #dname { width: 140px !important; }
+    #preset { max-width: 150px; }
+    main { padding: 10px 10px 24px; gap: 12px; }
+    .col { gap: 12px; }
+    .bar { padding: 8px 10px; }
+    .form { padding: 4px 10px 10px; }
+
+    /* Slider rows: label and exact value on top, a full-width slider underneath. */
+    .row { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 2px 0; }
+    .row > input[type="range"] { grid-column: 1 / -1; grid-row: 2; }
+    .row.wide { grid-template-columns: 108px minmax(0, 1fr); }
+    .row.block { grid-template-columns: minmax(0, 1fr); }
+    .note { margin-left: 0; }
+    .unit { max-width: 90px; }
+
+    /* Preview bar: shape and LED count on one line, toggles on the next. */
+    .stick .bar { gap: 6px 8px; }
+    #nled-r, label[for="shape"] { display: none; }
+    .stick .bar::after { content: ""; flex-basis: 100%; order: 1; }
+    .stick .bar > label[for="nled"], #nled, .stick .bar > label:has(#diffuse), .stick .bar > label:has(#pin) { order: 2; }
+    .stick .bar > label:has(#pin) { margin-left: auto; }
+
+    /* Mood conditions: the live reading moves under the min/max boxes. */
+    .cond { grid-template-columns: 58px 56px auto 56px minmax(0, 1fr); gap: 5px; }
+    .cond input { width: 56px; }
+    .cond .now { overflow: hidden; text-overflow: ellipsis; }
+
+    .wheel { width: 180px; height: 180px; flex-basis: 180px; margin: 0 auto; }
+    .rand-drop { width: min(280px, calc(100vw - 24px)); }
+    #code { height: 320px; font-size: 11.5px; }
+    .toast { left: 10px; right: 10px; transform: none; bottom: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -253,6 +323,7 @@
       <div class="bar">
         <h2>What the lights hear</h2>
         <span class="pill" id="src-state" data-s="idle">—</span>
+        <a id="get-app" class="hint" href="android.html" hidden>Get the Android app</a>
         <span class="spacer"></span>
         <label class="hint" for="src">Audio</label>
         <select id="src">

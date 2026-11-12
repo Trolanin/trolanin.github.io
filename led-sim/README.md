@@ -6,7 +6,7 @@ Browser simulator for ESP32 addressable-LED sketches (FastLED / Adafruit_NeoPixe
 
 Open `index.html` in Edge or Chrome (no server needed), paste a sketch, press **Run**.
 
-Live online: <https://trolanin.github.io/led-sim/designer.html> (designer) and <https://trolanin.github.io/led-sim/> (simulator). For live music, run `led-audio.exe` on the same PC as the browser; if the browser asks to allow access to devices on your local network, allow it.
+Live online: <https://trolanin.github.io/led-sim/designer.html> (designer) and <https://trolanin.github.io/led-sim/> (simulator). For live music, run `led-audio.exe` on the same PC as the browser, or the LED Audio app on an Android phone (see below). If the browser asks to allow access to devices on your local network, allow it. Both pages work on phones.
 
 ## Music-reactive LEDs
 
@@ -28,6 +28,14 @@ led-audio.exe --port COM5 --no-ws --baud 921600
 ```
 
 Close the Arduino serial monitor first — only one program can hold the COM port. Latency from sound to frame is about 15–25 ms (10 ms frame interval + ~21 ms analysis window, centred), plus the WS2812 refresh.
+
+### From an Android phone
+
+`led-audio.apk` (the **LED Audio** app, Android 10+) does the same on a phone. It captures what other apps are playing with Android's playback capture, runs the same analysis, and serves the same frames on `ws://127.0.0.1:8000`. The designer or simulator open in the phone's Chrome then reacts to the phone's music. The install and use steps are in `android.html` (linked from the designer on Android phones).
+
+- Chrome blocks capture of its own audio, so play music in an app (YouTube and YouTube Music allow capture), not a browser tab. The app's **Play a test beat** checks capture works.
+- iPhone isn't possible: iOS doesn't let apps capture other apps' audio.
+- Source is in `android/`. `android\build-apk.ps1` builds it with the plain SDK tools (no Gradle or Android Studio; the SDK is in `D:\Claude Misc\android\sdk`, JDK 17). The signing key is kept outside the repo in `D:\Claude Misc\android`. Keep it, because updates must be signed with the same key.
 
 ## Audio designer
 

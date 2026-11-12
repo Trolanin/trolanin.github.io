@@ -839,15 +839,19 @@ if (location.protocol === 'https:' && navigator.permissions) {
     .then(st => { lnaDenied = st.state === 'denied'; }).catch(() => {});
   checkLna(); setInterval(checkLna, 2000);
 }
-const LNA_TIP = 'Your browser is blocking this page from reaching led-audio.exe. Click the icon left of the address bar, open site permissions, and allow local network access (apps and services on this device), then reload.';
+// The same feed comes from led-audio.exe on a PC or the LED Audio app on an Android phone.
+const ANDROID = /Android/i.test(navigator.userAgent);
+const FEEDER = ANDROID ? 'the LED Audio app' : 'led-audio.exe', DEVICE = ANDROID ? 'phone' : 'PC';
+const LNA_TIP = `Your browser is blocking this page from reaching ${FEEDER}. Tap or click the icon left of the address bar, open site permissions, and allow local network access (apps and services on this device), then reload.`;
 setInterval(() => { if (!usingLive()) onFrame(D.testFrame(performance.now() / 1000), 'test'); }, 10);
 setInterval(() => {
   const pill = $('src-state');
   const fresh = performance.now() - lastFrameT < 500;
   const s = !fresh ? 'idle' : frameKind === 'live' && performance.now() - lastLoudT > 3000 ? 'quiet' : frameKind;
   pill.dataset.s = s;
-  pill.textContent = s === 'live' ? 'Live: your PC\'s sound' : s === 'quiet' ? 'Live, but silent: play some music' : s === 'test' ? (srcMode !== 'auto' ? 'Test beat' : lnaDenied ? 'Test beat (browser is blocking led-audio.exe)' : 'Test beat (led-audio.exe not running)') : srcMode === 'live' ? (lnaDenied ? 'Browser is blocking led-audio.exe' : 'Waiting for led-audio.exe…') : 'No audio';
-  pill.title = lnaDenied && !wsOpen && (s === 'test' || s === 'idle') ? LNA_TIP : s === 'test' && srcMode === 'auto' ?'Start led-audio.exe and the lights will follow whatever your PC is playing.' : s === 'idle' && srcMode === 'live' ? 'Start led-audio.exe, or switch Audio to Test beat.' : '';
+  pill.textContent = s === 'live' ? `Live: your ${DEVICE}'s sound` : s === 'quiet' ? 'Live, but silent: play some music' : s === 'test' ? (srcMode !== 'auto' ? 'Test beat' : lnaDenied ? `Test beat (browser is blocking ${FEEDER})` : `Test beat (${FEEDER} not running)`) : srcMode === 'live' ? (lnaDenied ? `Browser is blocking ${FEEDER}` : `Waiting for ${FEEDER}…`) : 'No audio';
+  $('get-app').hidden = !ANDROID || s === 'live' || s === 'quiet';
+  pill.title = lnaDenied && !wsOpen && (s === 'test' || s === 'idle') ? LNA_TIP : s === 'test' && srcMode === 'auto' ? `Start ${FEEDER} and the lights will follow whatever your ${DEVICE} is playing.` : s === 'idle' && srcMode === 'live' ? `Start ${FEEDER}, or switch Audio to Test beat.` : '';
 }, 250);
 
 // Mirrors the sketch's gate/gain/curve/smoothing so you can see what the focused layer receives.
@@ -884,7 +888,8 @@ const cv = $('mon'), cx = cv.getContext('2d');
 function monGeom() {
   const W = cv.clientWidth, H = cv.clientHeight, meters = H >= 170;
   const x0 = 14, x1 = W - 92, y0 = 10, y1 = meters ? H - 108 : H - 22, gap = 3;
-  return { W, H, meters, x0, x1, y0, y1, gap, bw: (x1 - x0) / 16 - gap, lx: W - 76, my: y1 + 44, mx: x0 + 150, mw: W - x0 - 150 - 14 };
+  const lab = W < 480 ? 104 : 150;   // room for the meter labels; tighter on phones
+  return { W, H, meters, x0, x1, y0, y1, gap, bw: (x1 - x0) / 16 - gap, lx: W - 76, my: y1 + 44, mx: x0 + lab, mw: W - x0 - lab - 14 };
 }
 let monHover = null;
 function draw() {
@@ -899,13 +904,14 @@ function draw() {
   const spec = L && L.effect === 'spectrum', src = L ? (spec ? 'bands' : L.source) : null;
   cx.font = '11px ' + css.getPropertyValue('--mono');
   cx.textAlign = 'center';
+  const labEvery = bw + gap >= 40 ? 1 : (bw + gap) * 2 >= 40 ? 2 : 4;   // band labels must not overlap
   for (let b = 0; b < 16; b++) {
     const v = frame[3 + b] / 254, x = x0 + b * (bw + gap);
     const hot = L && src === 'bands' && b >= L.lo && b <= L.hi;
     cx.fillStyle = monHover && monHover.kind === 'band' && monHover.b === b ? '#2b3140' : '#20242f'; cx.fillRect(x, y0, bw, y1 - y0);
     cx.fillStyle = hot ? accent : '#4a5266';
     cx.fillRect(x, y1 - v * (y1 - y0), bw, v * (y1 - y0));
-    if (bw > 30 || b % 2 === 0) { cx.fillStyle = hot ? accent : faint; cx.fillText(D.fmtHz(D.BAND_LO_HZ[b]).replace(' ', ''), x + bw / 2, y1 + 14); }
+    if (b % labEvery === 0) { cx.fillStyle = hot ? accent : faint; cx.fillText(D.fmtHz(D.BAND_LO_HZ[b]).replace(' ', ''), x + bw / 2, y1 + 14); }
   }
   if (L && src === 'bands') {
     cx.fillStyle = accent;
@@ -945,8 +951,20 @@ function draw() {
   if (ms) {
     const m = L.moods[ms.cur];
     cx.fillStyle = accent;
-    cx.fillText(`mood now: ${Math.round(ms.bpm)} BPM · bass ${Math.round(ms.bass)} · treble ${Math.round(ms.treb)} · loudness ${Math.round(ms.loud)}  →  palette ${ms.cur + 1}${m ? ' (' + D.PALETTES[m.pal] + ')' : ''}`, x0, my + 58);
-  } else cx.fillText(src === 'beat' ? 'beats are on/off, so there is no noise gate' : 'red line = noise gate (drag it): quieter than this is ignored', mx, my + 58);
+    const bpm = Math.round(ms.bpm), bs = Math.round(ms.bass), tr = Math.round(ms.treb), ld = Math.round(ms.loud), pal = m ? D.PALETTES[m.pal] : '';
+    const room = W - x0 * 2;
+    const fits = (s) => cx.measureText(s).width <= room;
+    const lines = [
+      `mood now: ${bpm} BPM · bass ${bs} · treble ${tr} · loudness ${ld}  →  palette ${ms.cur + 1}${pal ? ' (' + pal + ')' : ''}`,
+      `${bpm} BPM · bass ${bs} · treble ${tr} · loud ${ld} → ${ms.cur + 1}${pal ? ' ' + pal : ''}`,
+      `${bpm} BPM · B${bs} T${tr} L${ld} → palette ${ms.cur + 1}`,
+    ];
+    cx.fillText(lines.find(fits) || lines[2], x0, my + 58);
+  } else {
+    const msg = src === 'beat' ? 'beats are on/off, so there is no noise gate'
+      : mw >= 380 ? 'red line = noise gate (drag it): quieter than this is ignored' : 'red line = noise gate (drag it)';
+    cx.fillText(msg, mx, my + 58);
+  }
 }
 requestAnimationFrame(draw);
 

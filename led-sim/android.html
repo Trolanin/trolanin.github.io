@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED Audio for Android</title>
+<style>
+  :root {
+    --bg: #0d0f13; --panel: #151820; --line: #272c38; --line-2: #343a49;
+    --text: #e4e7ee; --muted: #9aa3b5; --accent: #35d6a4; --accent-ink: #062018; --warn: #ffb454; --info: #6cb6ff;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 var(--sans); }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 16px 40px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 26px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .dl { display: block; text-align: center; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; padding: 14px; border-radius: 9px; font-size: 1.05rem; }
+  .meta { color: var(--muted); font-size: 0.85rem; text-align: center; margin-top: 8px; }
+  ol { padding-left: 22px; margin: 0; }
+  li { margin: 8px 0; }
+  .note { color: var(--muted); font-size: 0.93rem; }
+  .warn { border-left: 3px solid var(--warn); padding: 8px 12px; background: #2a2212; border-radius: 0 8px 8px 0; color: #ffe2b0; font-size: 0.93rem; }
+  a { color: var(--info); }
+  b { color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>LED Audio for Android</h1>
+  <p class="sub">Sends whatever your phone is playing to the LED designer, so the preview reacts to live music, the same way <code>led-audio.exe</code> does on a PC.</p>
+
+  <div class="card">
+    <a class="dl" href="led-audio.apk" download>Download LED Audio (APK, 24 KB)</a>
+    <p class="meta">Android 10 or newer. iPhone can't do this: iOS doesn't let apps capture other apps' sound.</p>
+  </div>
+
+  <h2>Install</h2>
+  <ol>
+    <li>Tap the download button, then open the file.</li>
+    <li>Android will ask to allow installs from your browser ("Install unknown apps"). Allow it, then tap <b>Install</b>. If Play Protect warns that it doesn't recognise the app, choose <b>Install anyway</b>: it isn't on the Play Store.</li>
+  </ol>
+
+  <h2>Use</h2>
+  <ol>
+    <li>Open <b>LED Audio</b> and tap <b>Start</b>. Allow the microphone permission and the screen-sharing prompt. That's how Android grants access to other apps' sound; the mic isn't used and no video is recorded.</li>
+    <li>Play music in a music app. The bars in LED Audio should move. If nothing plays yet, <b>Play a test beat</b> checks capture works.</li>
+    <li>Open the <a href="designer.html">designer</a> in Chrome. If Chrome asks to let the page access apps and services on this device, allow it. "What the lights hear" should say <b>Live: your phone's sound</b>.</li>
+  </ol>
+
+  <h2>If it doesn't react</h2>
+  <p class="warn">Some apps block other apps from capturing their sound, and <b>Chrome is one of them</b>: music playing in a browser tab won't show up. Use an app instead: YouTube and YouTube Music allow capture. If another app stays flat, it blocks capture too.</p>
+  <p class="note">If the designer says the browser is blocking the app, tap the icon left of the address bar, open the site's permissions, and allow access to apps and services on this device (local network access). Then reload.</p>
+  <p class="note">The app only listens on this phone (127.0.0.1), so nothing else on your network can connect to it. Tap <b>Stop</b> or the notification when you're done.</p>
+  <p class="note">Source code: <a href="https://github.com/Trolanin/trolanin.github.io/tree/main/led-sim/android">led-sim/android</a>.</p>
+</main>
+</body>
+</html>

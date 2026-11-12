@@ -5,7 +5,8 @@
 param(
   [string]$Page = 'index.html',
   [string[]]$Actions = @('wait:2000', 'eval:document.title'),
-  [int]$Port = 9333, [int]$W = 1440, [int]$H = 1000
+  [int]$Port = 9333, [int]$W = 1440, [int]$H = 1000,
+  [switch]$Mobile   # emulate a phone: W x H viewport (e.g. -W 390 -H 844), touch, coarse pointer
 )
 $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 $url = if ($Page -match '^https?://') { $Page } else { 'file:///' + ($PSScriptRoot -replace '\\', '/') + '/' + $Page }
@@ -38,6 +39,11 @@ try {
     }
   }
   Invoke-Cdp 'Page.enable' | Out-Null
+  if ($Mobile) {
+    Invoke-Cdp 'Emulation.setDeviceMetricsOverride' @{ width = $W; height = $H; deviceScaleFactor = 2; mobile = $true } | Out-Null
+    Invoke-Cdp 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
+    Invoke-Cdp 'Emulation.setUserAgentOverride' @{ userAgent = 'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36' } | Out-Null
+  }
   Invoke-Cdp 'Page.navigate' @{ url = $url } | Out-Null
   Start-Sleep -Milliseconds 800
   foreach ($a in $Actions) {
