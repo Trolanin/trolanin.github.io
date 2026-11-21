@@ -19,9 +19,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / "build" / "tests"
 
-# mod: (id, side P/S, kind R/E/D/C/A, weight, groups, tags, meta)
-def M(i, side, w=1, groups=None, tags="-", kind="R", meta="-"):
-    return (i, side, kind, w, groups or "G_" + i, tags, meta)
+# mod: (id, side P/S, kind R/E/D/C/A/V, weight, groups, tags, meta, influence, dominance upgrade, type, tier)
+def M(i, side, w=1, groups=None, tags="-", kind="R", meta="-", infl="-", up="-", typ=None, tier=1):
+    return (i, side, kind, w, groups or "G_" + i, tags, meta, infl, up, typ or i, tier)
 
 POOLS = {
     "two": [M("A", "P"), M("B", "P")],
@@ -38,6 +38,17 @@ POOLS = {
     "alt": [M("P1", "P"), M("P2", "P"), M("S1", "S", 2)],
     "atk": [M("A", "P", 1, tags="attack"), M("B", "P"),
             M("NOATK", "S", 0, "NoAtkGroup", kind="C", meta="noattack")],
+    # influence: SA rolls only on Shaper items, HA only on Hunter items
+    "inf": [M("A", "P", 1, tags="fire"), M("B", "P"), M("SA", "P", 2, infl="shaper"), M("HA", "P", 1, infl="hunter"),
+            M("S", "S")],
+    "awk": [M("SA", "P", 1, "G", infl="shaper"), M("HA", "P", 1, "G", infl="hunter"), M("A", "P"), M("S", "S")],
+    "eld": [M(f"P{i}", "P") for i in (1, 2, 3, 4)] + [M("S1", "S"), M("S2", "S")],
+    "harv2": [M("A", "P"), M("B", "P"), M("C", "P"), M("S", "S")],
+    # Orb of Dominance ladder: SA2 (T2) -> SA1 (T1) -> SAE (Elevated)
+    "dom": [M("SA1", "P", 1, "GSA", infl="shaper", up="SAE", typ="ST", tier=1),
+            M("SA2", "P", 1, "GSA", infl="shaper", up="SA1", typ="ST", tier=2),
+            M("HB", "S", 1, infl="hunter"), M("S", "S"),
+            M("SAE", "P", 0, "GSA", kind="V", infl="shaper", typ="STE", tier=0)],
 }
 EXTRA = {
     "ess": ["E\tTest Essence\t3", "E\tLow Essence\t3\t2\t45"],
@@ -48,7 +59,10 @@ EXTRA = {
     "atk": ["B\t2\t1 Divine Orb"],
 }
 
+C1 = "count.rare=1:1"
 C2 = "count.rare=2:1"
+HARV = "harvest.same_type_more_mult=90;harvest.same_type_less_mult=0.011111111111111112;harvest.more_keeps_count=1"
+CONF = "eldritch.conflict_outcomes=exarch:1 eater:1"
 # (name, pool, target lines, method, start, cfg overrides, expected probability, why)
 CASES = [
     ("exalt: 2 equal prefixes", "two", ["need 1 mod:A"], "exalt", "rare", "", Fr(1, 2), "1/2"),
@@ -103,14 +117,75 @@ CASES = [
      "cost.beast.prefix_remove_suffix=3", Fr(1, 2), "removes S1 or S2"),
     ("beast add prefix remove suffix: adds P2", "lock", ["need 1 mod:P2"], "beast:prefix_remove_suffix",
      "rare mod:P1 mod:S1 mod:S2", "cost.beast.prefix_remove_suffix=3", Fr(1), "only free prefix"),
+    # ---- influence (docs F)
+    ("influence mods need the influence", "inf", ["need 1 mod:SA"], "exalt", "rare", "", Fr(0), "plain item"),
+    ("chaos on a Shaper item", "inf", ["need 1 mod:SA"], "chaos", "rare shaper", C1, Fr(2, 5), "2/(1+1+2+1)"),
+    ("target token infl:shaper", "inf", ["need 1 infl:shaper"], "chaos", "rare shaper", C1, Fr(2, 5), "= SA"),
+    ("target token text:", "inf", ["need 1 text:sa"], "chaos", "rare shaper", C1, Fr(2, 5), "= SA"),
+    ("Shaper's Exalted Orb", "inf", ["need 1 mod:SA"], "exalt:shaper", "rare", "", Fr(1), "only Shaper mod"),
+    ("harvest influence reforge", "inf", ["need 1 mod:HA"], "harvest:influence", "rare hunter", C2, Fr(1), "first mod"),
+    ("Awakener's Orb keeps both influence mods", "inf", ["need 2 mod:HA mod:SA"], "awaken:HA", "rare shaper mod:SA mod:S",
+     "", Fr(1), "SA + donor HA"),
+    ("Awakener's Orb: same group, one dropped", "awk", ["need 1 mod:SA"], "awaken:HA", "rare shaper mod:SA",
+     "count.awaken=1:1", Fr(1, 2), "SA or HA"),
+    ("harvest randomise influence", "inf", ["need 1 mod:SA"], "harvest:randomise_influence", "rare hunter", C1,
+     Fr(1, 15), "1/6 Shaper * 2/5"),
+    ("beast: add a mod to a Shaper item", "inf", ["need 1 mod:SA"], "beast:influence:shaper", "rare shaper", "", Fr(1), ""),
+    # ---- Eldritch (docs C5)
+    ("Eldritch Exalted, Exarch: a prefix", "eld", ["need 1 mod:P1"], "eldritch:exalt", "rare exarch mod:S1", "",
+     Fr(1, 4), "1 of 4 prefixes"),
+    ("Eldritch Chaos, Exarch: new prefixes only", "eld", ["need 1 mod:P1"], "eldritch:chaos",
+     "rare exarch mod:P1 mod:S1 mod:S2", "count.rare=4:1", Fr(1, 2), "2 of 4 prefixes"),
+    ("Eldritch Annulment, Eater: a suffix", "eld", ["need 1 mod:S1"], "eldritch:annul", "rare eater mod:P1 mod:S1 mod:S2",
+     "", Fr(1, 2), "S1 or S2"),
+    ("Eldritch Annulment, Eater: prefix safe", "eld", ["need 1 mod:P1"], "eldritch:annul",
+     "rare eater mod:P1 mod:S1 mod:S2", "", Fr(1), ""),
+    ("Orb of Conflict then Eldritch Exalted: S2", "eld", ["need 1 mod:S2"], "conflict,eldritch:exalt", "rare exarch mod:S1",
+     CONF, Fr(1, 2), "Eater 1/2"),
+    ("Orb of Conflict then Eldritch Exalted: P1", "eld", ["need 1 mod:P1"], "conflict,eldritch:exalt", "rare exarch mod:S1",
+     CONF, Fr(1, 8), "Exarch 1/2 * 1/4"),
+    # ---- fractured mods
+    ("fractured mod survives chaos", "six", ["need 1 mod:P1"], "chaos", "rare frac:P1", C1, Fr(1), ""),
+    ("fractured mod counts toward the mod count", "six", ["need 1 mod:S1"], "chaos", "rare frac:P1", C1, Fr(0), "1 total"),
+    ("fractured + 1 new mod", "six", ["need 1 mod:S1"], "chaos", "rare frac:P1", C2, Fr(1, 5), "1 of P2 P3 S1 S2 S3"),
+    ("annul never removes a fractured mod", "six", ["need 1 mod:P1"], "annul", "rare frac:P1 mod:S1", "", Fr(1), ""),
+    ("Fracturing Orb picks 1 of 4, scour keeps it", "six", ["need 1 mod:P1"], "fracture,scour",
+     "rare mod:P1 mod:P2 mod:S1 mod:S2", "", Fr(1, 4), "uniform"),
+    ("fractured mod survives scour + alch", "six", ["need 1 mod:P1"], "scour,alch", "rare frac:P1 mod:S1", C1, Fr(1), ""),
+    # ---- harvest more/less likely (exact now: static x90 boost of the old item's groups)
+    ("harvest more likely: x90", "harv2", ["need 1 mod:A"], "harvest:more", "rare mod:A", C1 + ";" + HARV, Fr(30, 31),
+     "90/(90+3)"),
+    ("harvest less likely: /90", "harv2", ["need 1 mod:A"], "harvest:less", "rare mod:A", C1 + ";" + HARV, Fr(1, 271),
+     "(1/90)/(1/90+3)"),
+    ("harvest more likely keeps the mod count", "harv2", ["need 4 mod:A mod:B mod:C mod:S"], "harvest:more",
+     "rare mod:A mod:B mod:C mod:S", C1 + ";" + HARV, Fr(1), "4 before -> 4 after"),
+    # ---- Orb of Dominance (docs F3)
+    ("Orb of Dominance: T2 -> T1", "dom", ["need 1 mod:SA1"], "dominance", "rare shaper hunter mod:SA2 mod:HB", "",
+     Fr(1, 2), "upgrade SA2, remove HB"),
+    ("Orb of Dominance: T1 -> Elevated", "dom", ["need 1 mod:SAE"], "dominance", "rare shaper hunter mod:SA1 mod:HB", "",
+     Fr(1, 2), ""),
+]
+# methods that must be refused (rc 2) or accepted (rc 0) on a start item: (what, pool, method, start, cfg, rc)
+APPLICABLE = [
+    ("Shaper's Exalted Orb on a Hunter item", "inf", "exalt:shaper", "rare hunter", "", 2),
+    ("harvest add/remove on an influenced item", "inf", "harvest:addremove:fire", "rare hunter mod:A", "", 2),
+    ("harvest add/remove on a plain item", "inf", "harvest:addremove:fire", "rare mod:B", "", 0),
+    ("beast Shaper craft on a plain item", "inf", "beast:influence:shaper", "rare", "", 2),
+    ("Fracturing Orb on an influenced item", "inf", "fracture", "rare hunter mod:A mod:B mod:HA mod:S", "", 2),
+    ("Awakener's Orb with a same-influence donor", "inf", "awaken:HA", "rare hunter mod:HA", "", 2),
+    ("Eldritch Chaos without dominance", "eld", "eldritch:chaos", "rare mod:P1", "", 2),
+    ("Eldritch Exalted with tied implicits", "eld", "eldritch:exalt", "rare eldritch mod:P1", "", 2),
+    ("Orb of Dominance with one influence mod", "dom", "dominance", "rare shaper mod:SA1", "", 2),
 ]
 
 
 def write_pool(name):
     p = WORK / f"{name}.pool"
-    lines = ["# test pool", f"H\tbase\tTest {name}\tHelmet\t86\t-", "H\ttags\tdefault"]
-    for i, (mid, side, kind, w, groups, tags, meta) in enumerate(POOLS[name]):
-        lines.append("\t".join(["M", str(i), mid, side, kind, str(w), groups, tags, mid, "1", "1", "1", meta, mid]))
+    lines = ["# test pool", f"H\tbase\tTest {name}\tHelmet\t86\t-", "H\ttags\tdefault",
+             "H\tinfluences\tshaper,elder,crusader,redeemer,hunter,warlord"]
+    for i, (mid, side, kind, w, groups, tags, meta, infl, up, typ, tier) in enumerate(POOLS[name]):
+        lines.append("\t".join(["M", str(i), mid, side, kind, str(w), groups, tags, typ, str(tier), "1", "1", meta, mid,
+                                infl, up]))
     lines += EXTRA.get(name, [])
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return p
@@ -137,9 +212,21 @@ def unit(exe, samples):
         rc, out = run(exe, args)
         pm = next((l.split()[1] for l in out.splitlines() if l.startswith("p_mc")), "?")
         pe = next((l.split()[1] for l in out.splitlines() if l.startswith("p_exact")), "?")
-        ok = rc == 0
+        ok = rc == 0 and pe not in ("n/a", "?")  # every case here has an exact calculation
         fails += not ok
         print(f"{'PASS' if ok else 'FAIL'}  {name:46} expect {float(exp):.6f} ({why or exp})  exact {pe:10}  mc {pm}")
+        if not ok:
+            print("      " + out.replace("\n", "\n      "))
+    for what, pool, meth, start, sets, want in APPLICABLE:
+        tf = WORK / f"app_{pool}.target"
+        tf.write_text(f"need 1 mod:{POOLS[pool][0][0]}\n", encoding="utf-8")
+        args = ["eval", "--pool", str(pools[pool]), "--target", str(tf), "--method", meth, "--start", start,
+                "--samples", "20000"] + (["--set", sets] if sets else [])
+        rc, out = run(exe, args)
+        n += 1
+        ok = rc == want
+        fails += not ok
+        print(f"{'PASS' if ok else 'FAIL'}  {what}: {'applies' if want == 0 else 'refused'}")
         if not ok:
             print("      " + out.replace("\n", "\n      "))
     # essences / fossils refuse items with an outcome-affecting metamod (docs A1.4 note 1)

@@ -7,6 +7,10 @@
 // memoised recursion over the SET of classes drawn so far (order does not matter for the future).
 // The state count is bounded by the side caps (<=3+3 classes), so typical rare pools are exact in
 // well under a second; a state cap guards pathological pools.
+//
+// Influence: only the mods the rerolled item's influences allow enter the classes (Ctx::eligible).
+// Harvest more/less likely: the multiplier depends only on the item BEFORE the reforge, so it is a
+// fixed per-class factor (mods of one class share their groups) and the recursion stays exact.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -104,7 +108,8 @@ struct Dfs {
 ExactResult exactReroll(const Ctx& c, const Target& t, uint32_t subset, const State& from, const RerollSpec& sp,
                         size_t stateCap) {
     ExactResult res;
-    if (sp.sameTypeMult != 1) { res.why = "dynamic weights"; return res; }
+    uint16_t bg[2 * MAXA];
+    int nb = sameTypeGroups(c, from.it, sp, bg);
     RerollStart rs = rerollStart(c, from.it, sp);
     Dfs d(c, t, subset, stateCap);
     const Item& st = rs.start;
@@ -123,7 +128,9 @@ ExactResult exactReroll(const Ctx& c, const Target& t, uint32_t subset, const St
         double w = sp.wt->w[m], wf = sp.first ? sp.first->w[m] : 0;
         if (w <= 0 && wf <= 0) continue;
         if (!(d.sideMask >> c.side[m] & 1)) continue;
-        if (!c.eligible(st, (int)m, f)) continue;  // blocked by kept/forced mods for the whole reroll
+        if (!c.eligible(st, (int)m, f)) continue;  // influence, metamods, groups of kept/forced mods
+        for (int k = 0; k < nb; k++)
+            if (c.g0[m] == bg[k] || c.g1[m] == bg[k]) { w *= sp.sameTypeMult; break; }
         auto key = std::make_tuple((int)c.side[m], (int)c.g0[m], (int)c.g1[m], t.modMask[m]);
         auto it = idx.find(key);
         int j;
@@ -147,7 +154,7 @@ ExactResult exactReroll(const Ctx& c, const Target& t, uint32_t subset, const St
     d.memo.reserve(1 << 16);
     double p = 0;
     for (auto& [n, pn] : sp.count->v) {
-        d.tn = rs.kept > 0 ? std::max(n, rs.kept + c.rules.minNew) : n;
+        d.tn = rerollTarget(c, from.it, sp, rs, n);
         uint8_t ch[16];
         p += pn * d.rec(ch, 0, d.startP, d.startS, sp.first != nullptr);
         if (d.overflow) { res.why = "state cap exceeded"; return res; }
@@ -168,39 +175,60 @@ ExactResult exactStep(const Ctx& c, const Target& t, uint32_t subset, const Stat
     return r;
 }
 
-ExactResult exactMethod(const Ctx& c, const Target& t, uint32_t subset, const State& from, const Method& m) {
-    if (!m.applicable(c, from)) { ExactResult r; r.ok = true; r.why = "not applicable"; return r; }
-    if (auto* sp = m.reroll()) return exactReroll(c, t, subset, from, *sp);
-    if (auto* parts = m.parts()) {
-        // enumerate the single-step parts, then finish with an exact reroll if the last part is one
-        std::vector<Outcome> cur{{from, 1.0}}, nxt;
+// one application of m to `from` (caller checked applicable): a reroll, a pre-step + reroll, or enumerable
+static ExactResult exactTail(const Ctx& c, const Target& t, uint32_t subset, const State& from, const Method& m) {
+    if (m.parts()) return exactMethod(c, t, subset, from, m);
+    if (auto* sp = m.rerollAt(from)) return exactReroll(c, t, subset, from, *sp);
+    std::vector<Outcome> pre;
+    const RerollSpec* sp = nullptr;
+    if (m.split(c, from, pre, sp)) {
         ExactResult r;
-        for (size_t i = 0; i < parts->size(); i++) {
-            const Method& p = *(*parts)[i];
-            bool last = i + 1 == parts->size();
-            nxt.clear();
-            for (auto& o : cur) {
-                if (!p.applicable(c, o.s)) { nxt.push_back(o); continue; }
-                if (last && p.reroll()) {
-                    auto e = exactReroll(c, t, subset, o.s, *p.reroll());
-                    if (!e.ok) return e;
-                    r.p += o.p * e.p;
-                    r.states += e.states;
-                    continue;
-                }
-                std::vector<Outcome> sub;
-                if (!p.outcomes(c, o.s, sub)) { r.why = p.name + " not enumerable"; return r; }
-                for (auto& x : sub) nxt.push_back({x.s, x.p * o.p});
-            }
-            if (!last || !p.reroll()) std::swap(cur, nxt);
-            else cur.clear();
-            if (cur.size() > 100000) { r.why = "too many intermediate states"; return r; }
+        for (auto& o : pre) {
+            if (o.p <= 0) continue;
+            auto e = exactReroll(c, t, subset, o.s, *sp);
+            if (!e.ok) return e;
+            r.p += o.p * e.p;
+            r.states += e.states;
         }
-        for (auto& o : cur) r.p += o.p * t.sat(o.s.it, subset);
         r.ok = true;
         return r;
     }
     return exactStep(c, t, subset, from, m);
+}
+
+ExactResult exactMethod(const Ctx& c, const Target& t, uint32_t subset, const State& from, const Method& m) {
+    if (!m.applicable(c, from)) { ExactResult r; r.ok = true; r.why = "not applicable"; return r; }
+    auto* parts = m.parts();
+    if (!parts) return exactTail(c, t, subset, from, m);
+    // enumerate the single-step parts, then finish with the last part (exact reroll where it is one)
+    std::vector<Outcome> cur{{from, 1.0}}, nxt;
+    ExactResult r;
+    for (size_t i = 0; i < parts->size(); i++) {
+        const Method& p = *(*parts)[i];
+        bool last = i + 1 == parts->size();
+        nxt.clear();
+        for (auto& o : cur) {
+            if (!p.applicable(c, o.s)) {
+                if (last) r.p += o.p * t.sat(o.s.it, subset);
+                else nxt.push_back(o);
+                continue;
+            }
+            if (last) {
+                auto e = exactTail(c, t, subset, o.s, p);
+                if (!e.ok) { if (e.why.empty()) e.why = p.name + " not enumerable"; return e; }
+                r.p += o.p * e.p;
+                r.states += e.states;
+                continue;
+            }
+            std::vector<Outcome> sub;
+            if (!p.outcomes(c, o.s, sub)) { r.why = p.name + " not enumerable"; return r; }
+            for (auto& x : sub) nxt.push_back({x.s, x.p * o.p});
+        }
+        std::swap(cur, nxt);
+        if (cur.size() > 100000) { r.why = "too many intermediate states"; return r; }
+    }
+    r.ok = true;
+    return r;
 }
 
 void MCResult::wilson(double& lo, double& hi, double z) const {
@@ -216,7 +244,7 @@ MCResult monteCarlo(const Ctx& c, const Method& m, const State& start, const Tar
                     uint64_t samples, int threads, uint64_t seed) {
     MCResult res;
     if (!m.applicable(c, start)) { res.n = samples; res.inapplicable = samples; return res; }
-    threads = std::max(1, threads);
+    threads = (int)std::max<uint64_t>(1, std::min<uint64_t>((uint64_t)std::max(1, threads), samples / 20000 + 1));
     std::vector<uint64_t> succ(threads), done(threads);
     std::vector<double> cost(threads);
     auto t0 = std::chrono::steady_clock::now();

@@ -1,11 +1,11 @@
 # PoE1 crafting mechanics spec (3.30 "Covens of Umbra") for the poe-craft engine
 
-Status: DRAFT written 2026-11-20. Game data: RePoE-fork export 3.30.0.4 in `data/repoe/`. Latest patch seen: **3.30.0d** (patchbot lists 3.30.0b hotfixes 1-4, 3.30.0c, 3.30.0d + 2 hotfixes, 2026-11-14..20; the task brief said 3.30.0c is latest - it is not, but 0c/0d contain no crafting-cost changes).
+Status: DRAFT written 2026-11-20; influence / Eldritch / fractured / technique pass 2026-11-21 (Parts F, G). Game data: RePoE-fork export 3.30.0.4 in `data/repoe/`. Latest patch seen: **3.30.0d** (patchbot lists 3.30.0b hotfixes 1-4, 3.30.0c, 3.30.0d + 2 hotfixes, 2026-11-14..20; the task brief said 3.30.0c is latest - it is not, but 0c/0d contain no crafting-cost changes).
 Conventions: **VERIFIED** = stated by official patch notes / game data / two sources agree. **UNVERIFIED** = single secondary source, inference, or not published. "c" = Chaos Orb. Prices are poe.ninja snapshot 2026-11-20 (1 Divine = 221.4c).
 
 Sources (fetched 2026-11-20): [official 3.30.0 notes](https://www.pathofexile.com/forum/view-thread/4013680) | [patchbot 3.30.0 mirror (full text)](https://patchbot.io/games/path-of-exile/articles/2188-content-update-3300-path-of-exile-covens-of-umbra) | [3.30.0b hotfix 4](https://www.pathofexile.com/forum/view-thread/4016174) | [3.30.0c](https://patchbot.io/games/path-of-exile/articles/2297-3300c-patch-notes) | [3.30.0d](https://patchbot.io/games/path-of-exile/articles/2319-3300d-patch-notes) | [poedb Horticrafting (live 3.30 costs)](https://poedb.tw/us/Horticrafting) | [poewiki Beastcrafting](https://www.poewiki.net/wiki/Beastcrafting) | [poewiki Metamod](https://www.poewiki.net/wiki/Metamod) | [poewiki Harvest crafting](https://www.poewiki.net/wiki/Harvest_crafting) | [poewiki Crafting Bench](https://www.poewiki.net/wiki/Crafting_Bench) | [Exiled Bench: metacrafting](https://www.exiledbench.com/blog/metacrafting-locking-prefixes-suffixes) | [Exiled Bench: bench guide](https://www.exiledbench.com/blog/poe-crafting-bench-guide) | [Vtomes 3.30 crafting changes](https://vtomes.com/poe/guides/3-30-crafting-changes/).
 
-Layout: Part A metacrafting (bench, Harvest, Bestiary) -> Part B core roll rules -> Part C other currencies/methods -> Part D RePoE field map + hand-maintained tables -> Part E pricing sources.
+Layout: Part A metacrafting (bench, Harvest, Bestiary) -> Part B core roll rules -> Part C other currencies/methods -> Part D RePoE field map + hand-maintained tables -> Part E pricing sources -> Part F influence, Eldritch, fractured, Memory Strands -> Part G technique catalogue.
 
 ---
 # PART A - METACRAFTING (highest-detail section)
@@ -90,7 +90,7 @@ R = respected; R* = respected, but **open slots on the protected side can still 
 | Beast "Add Suffix, Remove Prefix" | adds without removing | R* | I | I |
 | Bench "reroll 1/3 random mods" | R (3.30 bugfix) | R | UNVERIFIED | UNVERIFIED |
 
-Notes: (1) Essences/fossils refuse to apply when the item has any outcome-affecting metamod **except** the multi-craft one (poewiki). Treat metamods as a precondition check there, not a weight change. (2) "R*" = the operation rerolls everything except the protected side's *existing* mods; users plug open slots on the protected side with a temporary crafted mod (needs the 3-crafted-mods metamod). (3) Awakener's Orb ignores all metamods (since 3.9.1b).
+Notes: (1) Essences/fossils refuse to apply when the item has any outcome-affecting metamod **except** the multi-craft one (poewiki). Treat metamods as a precondition check there, not a weight change. (2) "R*" = the operation rerolls everything except the protected side's *existing* mods; users plug open slots on the protected side with a temporary crafted mod (needs the 3-crafted-mods metamod). (3) Awakener's Orb ignores all metamods (since 3.9.1b). (4) Engine mapping: Eldritch Chaos ignores side locks unless `eldritch.chaos_honours_locks = 1`; Eldritch Exalted behaves like Exalted on the dominant side only; Eldritch Annulment and Dominance respect side locks; Awakener's and Fracturing ignore all metamods.
 
 ### A1.5 Metamod economics (for the optimiser)
 * Standard patterns: **lock + Scour** (keep one side, wipe the other incl. the lock; re-buy lock each cycle), **lock + Chaos spam** (community practice: the lock stays while the unprotected side is rerolled - UNVERIFIED in the sources I fetched; expose a flag `lock_survives_chaos`, default true, and `lock_survives_exalt` true), **lock + Annul** (Annul can pick only from the unprotected side, and the lock itself lives there, so it is a legal target - include in probability).
@@ -199,11 +199,11 @@ Resistance/damage swap colour pairs (from poedb, transcribed literally; colour p
 | kind | behaviour | confidence |
 |---|---|---|
 | `reforge_including(tag)` | Works on Normal/Magic/Rare (3.16+). Item becomes Rare; all non-protected mods rerolled like a Chaos Orb (4/5/6 mod count, B2) with **at least one mod carrying `tag`** guaranteed; respects metamods incl. cannot-roll attack/caster (3.27). Draw order (guaranteed mod first from tag-filtered pool by normal spawn weights, then the rest) UNVERIFIED. | structure VERIFIED |
-| `reforge_more_likely` / `reforge_less_likely` | Chaos-style reroll in which mods sharing tag/group with mods on the item get higher/lower weight. **Numeric multiplier is not published** (3.19.0e: "increased the chance"); engine parameter `same_tag_mult` (placeholder 3.0 and 1/3, UNVERIFIED). | numbers UNVERIFIED |
+| `reforge_more_likely` / `reforge_less_likely` | Chaos-style reroll in which mods sharing a mod group with mods on the item get higher/lower weight. Not officially published (3.19.0e: cost 300 -> 200 and "increased the chance"). [Craft of Exile FAQ](https://www.craftofexile.com/faq) (Harvest datamine): "more likely" = **x90** on present mod types, and the item never ends with fewer mods than before (very rarely more); [maxroll crafting resources](https://maxroll.gg/poe/resources/crafting-resources) says x10. Engine: `harvest.same_type_more_mult = 90`, `_less_mult = 1/90` (less UNVERIFIED), `harvest.more_keeps_count = 1`, `harvest.less_keeps_count = 0`; exact odds in `eval`. | x90 single source; less UNVERIFIED |
 | `add_remove(tag)` | Non-influenced items only. Adds one mod from the tag-filtered pool (normal spawn weights), then removes "another random modifier" (the new mod is safe). | wording VERIFIED; removal pool UNVERIFIED |
 | `swap_resistance`, `swap_damage` | Replaces a mod granting X by the same-tier mod granting Y; value rerolled; respects locks; damage swap excludes crit-multiplier mods (3.28). | partly UNVERIFIED |
-| `reforge_influenced` | Influenced Rare only; reforge with guaranteed influence modifier. | VERIFIED text |
-| `randomise_influence_reforge` | Influenced Normal/Magic/Rare: rerolls influence types and reforges mods. | VERIFIED text |
+| `reforge_influenced` | "Reforge an Influenced Rare item ... including a Influence modifier" (poedb): 5000 Primal + 1 Sacred. Engine `harvest:influence`: first new mod drawn from the item's influence mods, the rest as Chaos. | VERIFIED text; draw order UNVERIFIED |
+| `randomise_influence_reforge` | "Randomise the Influence types on an Influenced Normal, Magic or Rare Item, as well as reforging..." (poedb): 1000 Primal. A1.4: R*, blocked if a locked-side mod is influenced. Engine `harvest:randomise_influence`: new influence set uniform among sets of the same size the base can take (`exclude_current` flag), then a same-rarity reroll. | VERIFIED text; distribution UNVERIFIED |
 | `enchant_quality` | Quality-enchant on body armour/weapons (quality gives a stat instead of defence/phys). Not a mod roll. | VERIFIED |
 All modifying crafts are blocked on corrupted/mirrored items (standard rule, UNVERIFIED for 3.30 specifically).
 
@@ -285,12 +285,12 @@ Items with implicit "+1 Prefix/Suffix allowed" (Cogwork/Geodesic-type rings 3.30
 7. **Affix slot availability**: prefix candidates only if prefixes < cap; suffix likewise. Both are drawn from **one combined pool** weighted by effective weight (no 50/50 prefix-vs-suffix coin; a side that is full simply removes its mods from the pool). The 50/50 "fill prefixes first" rule belongs to the Recombinator only. Combined-pool reading is the standard model; UNVERIFIED in the wiki text I fetched.
 8. **Tier within a family**: each tier is its own RePoE mod id with its own weight and `required_level`; pick among all eligible mod ids directly (no two-stage family pick). 3.30 "Modifier Tier Rating" rework applies to *item generation* (drops, Kingsmarch, Foulborn currency) only, not to Chaos/Exalt/essence; Foulborn Exalted/Regal/Augmentation ("higher level modifiers more likely") block a percentage of the lowest tiers of each mod family; the exact percentage is UNVERIFIED (pre-3.30 community model: block fraction = 1 - 100/(x+100) with x = +75).
 9. **Value roll**: each stat value uniform integer in [min,max] (`stats[].min/max`); Divine re-rolls all random mods' values; Sanctified Fossil makes values lucky (roll twice, keep higher; UNVERIFIED exact form).
-10. Influence mods: item tag set includes the influence tags; Shaper/Elder/Conqueror mods appear only through influenced items' tags (Awakener's/Dominance/Elevated mods); `Eldritch` items are *not* influenced ([poewiki](https://www.poewiki.net/wiki/Eldritch_implicit)).
+10. Influence mods: an influenced item adds its class's influence tag (`<class>_shaper`, `_elder`, `_crusader`, `_eyrie` = Redeemer, `_basilisk` = Hunter, `_adjudicator` = Warlord). Influence mods have weight only under that tag (no mod spawns under two influences, and no plain mod changes weight when the tag is added; checked over RePoE 3.30.0.4), so on an influenced item they simply join the normal pool of every reroll and add. Ways in: influence exalts, Harvest influence reforge, Awakener's Orb, beastcraft B04, or any reroll of an already influenced item. Elevated mods have weight 0 and come only from Orb of Dominance (F3). Eldritch items are *not* influenced. Details in Part F. *(Corrected 2026-11-21.)*
 
 ## B4. Removal / reroll primitives
 * Annulment: removes one explicit mod uniformly at random among removable mods (not fractured; when metamods exist, per A1.4; the metamod itself counts as an explicit mod). 3.30: no longer protected by Cannot-roll-attack/caster. Does not downgrade rarity.
 * Scouring: removes all non-fractured explicit mods (and crafted), -> normal; protected side survives with prefix/suffix locks (A1.4).
-* Fractured mods: immune to Chaos/Scour/Annul/Harvest; created by Fracturing Orb or Fractured Fossil.
+* Fractured mods: immune to Chaos/Scour/Annul/Harvest; created by Fracturing Orb or Fractured Fossil. They still count toward the mod count and affix caps (F6).
 
 ---
 # PART C - OTHER CURRENCIES AND METHODS
@@ -313,7 +313,7 @@ Items with implicit "+1 Prefix/Suffix allowed" (Cogwork/Geodesic-type rings 3.30
 Vendor changes affecting cost (VERIFIED, official): 2 same-name rares -> 1 Chaos; 3 same-name rares -> 1 Exalted; 1 Augmentation buys 1 Transmutation; Alteration can be bought for 4 Augmentations (poewiki); Magic vs Rare currency drop pools now split by monster rarity.
 
 ## C2. Foulborn / special exalted orbs (3.30.0d)
-Foulborn Exalted / Regal / Augmentation are now in the core drop pool (poe.ninja: 27.5c / 1.9c / 2.0c). Primordial Exalted Orb -> random Exotic Exalted (Hunter/Warlord/Eldritch/Foulborn/Originator...). Originator's Exalted Orb works only on Nightmare Maps. Hunter/Warlord/Crusader/Redeemer Exalted orbs add one influence mod of that type (item must carry that influence).
+Foulborn Exalted / Regal / Augmentation are now in the core drop pool (poe.ninja: 27.5c / 1.9c / 2.0c). Primordial Exalted Orb -> random Exotic Exalted (Hunter/Warlord/Eldritch/Foulborn/Originator...). Originator's Exalted Orb works only on Nightmare Maps. Shaper's/Elder's/Crusader's/Redeemer's/Hunter's/Warlord's Exalted Orbs add that influence **and** one of its mods to a rare item with **no** influence ([poedb](https://poedb.tw/us/Crusaders_Exalted_Orb): "Adds Crusader influence and a new Crusader modifier to a rare item"). Shaper's and Elder's versions were added in 3.26. *(Corrected 2026-11-21: an earlier draft said the item must already carry the influence.)* Details in F1.
 
 ## C3. Essences
 * Mechanics ([poewiki Essence](https://www.poewiki.net/wiki/Essence)): on a **normal** item = Alchemy + one guaranteed mod; on a **rare** only tier >=5 (Screaming, Shrieking, Deafening) and the special tier-6/7/8 essences reforge like a Chaos Orb with the guaranteed mod. Cannot be used if the item has any outcome-affecting metamod (A1.4). All other mods are random as Chaos.
@@ -333,15 +333,15 @@ Foulborn Exalted / Regal / Augmentation are now in the core drop pool (poe.ninja
 ## C5. Eldritch currency (Exarch / Eater) - [poewiki](https://www.poewiki.net/wiki/Eldritch_implicit), [Conflict](https://www.poewiki.net/wiki/Orb_of_Conflict)
 * Items: body armour/helmet/gloves/boots only; not on influenced items; implicits replace existing implicits; two implicit slots (Exarch + Eater), each tiered Lesser, Greater, Grand, Exceptional, Exquisite (T5), Perfect (T6). Embers (Exarch) / Ichors (Eater) of Lesser/Greater/Grand/Exceptional tier apply the implicit; poe.ninja has them.
 * **Dominance**: the side with the higher implicit tier is dominant; equal tiers = no dominance (Eldritch Chaos/Exalted/Annulment cannot be used).
-* Eldritch Chaos: rerolls **prefixes** if Exarch dominant, **suffixes** if Eater dominant (others kept). Eldritch Exalted: adds a prefix (Exarch) / suffix (Eater). Eldritch Annulment: removes a prefix (Exarch) / suffix (Eater). All are one-sided versions of Chaos/Exalt/Annul; metamod interplay in A1.4.
+* Eldritch Chaos (rare only): rerolls **prefixes** if Exarch dominant, **suffixes** if Eater dominant (others kept); since 3.17.2 the prefix/suffix counts are no longer preserved. Eldritch Exalted (rare): adds a prefix (Exarch) / suffix (Eater); 3.26.0d hotfix 3 allows it with Exarch dominance and full suffixes. Eldritch Annulment (**magic or rare**): removes a prefix (Exarch) / suffix (Eater); fractured mods cannot be removed. All are one-sided versions of Chaos/Exalt/Annul; metamod interplay in A1.4; count model in F5. Fractured items are allowed, synthesised items are not ([poedb](https://poedb.tw/us/Eldritch_Chaos_Orb)).
 * Orb of Conflict: raises the tier of one implicit and lowers the other; with equal tiers 50%; each tier of difference shifts about +-11 points (5/3 item ~28% upgrade to 6/2). Only source of Exquisite/Perfect.
 * RePoE: `generation_type` `eater_of_worlds_implicit` (2070 mods) / `searing_exarch_implicit` (2016), weights per item tag. Ember/Ichor tier->mod-tier mapping is not a RePoE field (hand table: Lesser=1 .. Exceptional=4, Conflict reaches 5-6).
 
 ## C6. Awakener's Orb, Dominance ("Maven's Orb"), Veiled, Fracturing, Hinekora, catalysts, recombinators
 | Item | Rules (3.30) | Source |
 |---|---|---|
-| Awakener's Orb (poe.ninja 150c) | donor + target of same class, each with exactly **one** influence (different); donor destroyed; target becomes rare with both influences; one influenced mod from each item is kept (random if several; same mod group -> one dropped); everything else rerolled; **ignores metamods**; not on corrupted | [poewiki](https://www.poewiki.net/wiki/Awakener%27s_Orb) |
-| Orb of Dominance (ninja id `mavens-orb`, 481c) | body/boots/gloves/helmet magic or rare with >=2 influenced mods: upgrades one influenced mod one tier (T1 -> Elevated; Elevated -> reroll values) and removes another influenced mod; respects "cannot be changed" | [poewiki](https://www.poewiki.net/wiki/Orb_of_Dominance) |
+| Awakener's Orb (poe.ninja 150c) | donor + target of same class, each with exactly **one** influence (different); donor destroyed; target becomes rare with both influences; one influenced mod from each item is kept (random if several; same mod group -> one dropped); everything else rerolled (forum: 2 kept + 2-4 new); keeps base, ilvl, sockets and links; **ignores metamods**; not on corrupted. See F2 | [poewiki](https://www.poewiki.net/wiki/Awakener%27s_Orb) |
+| Orb of Dominance (ninja id `mavens-orb`, 481c) | body/boots/gloves/helmet magic or rare with >=2 influenced mods: upgrades one influenced mod one tier (T1 -> Elevated; Elevated -> reroll values) and removes another influenced mod; respects "cannot be changed"; maxroll: a 50/50 for the right mod with two influence mods. See F3 | [poewiki](https://www.poewiki.net/wiki/Orb_of_Dominance) |
 | Veiled Chaos Orb (ninja 12.1c) | Chaos reroll with one random **veiled** mod; since 3.30.0b hotfix 4 usable on items that already have a veiled mod unless protected by fracture/metamod; RePoE domain `veiled` (22 mods) -> unveil choices in domain `unveiled` (311 mods) | [poewiki](https://www.poewiki.net/wiki/Veiled_Chaos_Orb) |
 | Veiled Exalted Orb (ninja 708c) | removes one random mod, adds one veiled mod | poewiki |
 | Unveiling (Jun/Aisling, Syndicate bench) | veiled mod -> choose among 3 random `unveiled` mods; Aisling T4 benches/Secrets Unveiled give more choices or two veiled mods; weights not in RePoE UNVERIFIED | poewiki Veiled modifier |
@@ -387,7 +387,9 @@ Recombinator count table (pre-3.30; 3.30 "1-3 mod pool results in fewer mods, ta
 | Beastcrafts and beast requirements | A3 |
 | Metamod interaction matrix, lock semantics | A1.4 |
 | Eldritch ember/ichor -> tier, dominance, Conflict odds | C5 |
-| Awakener/Dominance/Fracturing/Recombinator behaviours | C6 |
+| Awakener/Dominance/Fracturing/Recombinator behaviours | C6, F2, F3, F6 |
+| Influence tag per item class, influence-mod ownership, Elevated mod for each T1 influence mod | F1, F3 (compile_pool.py derives them; the Elevated link is partly heuristic) |
+| Memory Strand cost per currency and tier breakpoints | F7 |
 | Veiled unveil choice weights | UNVERIFIED |
 | Vendor recipes (Scouring = 4 Fusing; Alt = 4 Aug; Transmute = 1 Aug; Chaos = 2 same-name rares; Exalt = 3) | C1 |
 | Gold/Thaumaturgic Dust costs for Recombinator | not published |
@@ -401,7 +403,7 @@ CurrencyUpgradeToMagic=Orb of Transmutation; CurrencyAddModToMagic=Orb of Augmen
 
 | Input | Best source (legit) | Notes |
 |---|---|---|
-| Currency, catalysts, Eldritch/Veiled/Foulborn/Fracturing/Hinekora/Awakener/Dominance/Conflict, **lifeforce incl. Sacred + Rancour**, Sacred/Blessed/Exalted etc. | poe.ninja exchange `type=Currency` | 105 lines, units = chaos per 1; Divine 221.4c; snapshot 2026-11-20 |
+| Currency, catalysts, influence exalts (Shaper's ... Warlord's), Eldritch/Veiled/Foulborn/Fracturing/Hinekora/Awakener/Dominance/Conflict, **lifeforce incl. Sacred + Rancour**, Sacred/Blessed/Exalted etc. | poe.ninja exchange `type=Currency` | 105 lines, units = chaos per 1; Divine 221.4c; snapshot 2026-11-20 |
 | Essences | exchange `type=Essence` (104 lines) | all tiers incl. Deafening, Delirium/Horror/Hysteria/Insanity; Desolation 21.3c / Trickery 15.1c are on the Essence overview (`essence-of-desolation`, `essence-of-trickery`); Delirium 8.6c, Horror 12.2c, Hysteria 7.9c, Insanity 7.4c |
 | Fossils | exchange `type=Fossil` (25 lines) | includes Sanctified, Tangled, Glyphic, Fractured, Gilded, Hollow, Bloodstained |
 | Resonators | exchange `type=Resonator` (4 lines: only Chaotic: primitive 1.08c, potent 0.64c, powerful 2.48c, prime 402c) | prime anomalously high |
@@ -420,5 +422,66 @@ CurrencyUpgradeToMagic=Orb of Transmutation; CurrencyAddModToMagic=Orb of Augmen
 * **Trade website API** (`/api/trade/search/<league>` POST, `/api/trade/fetch/...`): not in the documented API; docs say reverse-engineering undocumented endpoints violates ToS 7i - policy status UNVERIFIED, use sparingly if at all. Observed headers on one search call: `X-Rate-Limit-Policy: trade-search-request-limit`, `X-Rate-Limit-Ip: 5:10:60,15:60:300,30:300:1800,600:21600:3600` (requests:period s:penalty s). Identifiable User-Agent mandatory.
 * poe.ninja: unofficial but public; updates about hourly; send an identifying UA (`poe-craft-planner/0.1`); cache >= 1 h. League name `Covens` (HC: `Hardcore Covens`; SSF/Ruthless variants listed in `https://poe.ninja/poe1/api/data/index-state`).
 
+---
+# PART F - INFLUENCE, ELDRITCH, FRACTURED, MEMORY STRANDS (added 2026-11-21)
+
+Sources: [poedb Shaper's Exalted Orb](https://poedb.tw/us/Shapers_Exalted_Orb), [Crusader's Exalted Orb](https://poedb.tw/us/Crusaders_Exalted_Orb), [Awakener's Orb](https://poedb.tw/us/Awakeners_Orb), [Orb of Dominance](https://poedb.tw/us/Orb_of_Dominance), [Eldritch Chaos](https://poedb.tw/us/Eldritch_Chaos_Orb) / [Exalted](https://poedb.tw/us/Eldritch_Exalted_Orb) / [Annulment](https://poedb.tw/us/Eldritch_Orb_of_Annulment), [Orb of Conflict](https://poedb.tw/us/Orb_of_Conflict), [Horticrafting](https://poedb.tw/us/Horticrafting), [Bestiary league](https://poedb.tw/us/Bestiary_league), [Memory Strands](https://poedb.tw/us/Memory_Strands), [maxroll double-influence](https://maxroll.gg/poe/crafting/double-influence-crafting), [maxroll Eldritch](https://maxroll.gg/poe/crafting/eldritch-crafting), [maxroll metacrafting](https://maxroll.gg/poe/crafting/metacrafting) (3.23-era), [maxroll crafting resources](https://maxroll.gg/poe/resources/crafting-resources), [forum thread 3155188](https://www.pathofexile.com/forum/view-thread/3155188), [Craft of Exile FAQ](https://www.craftofexile.com/faq). Older-patch sources are used where the mechanic has not changed since.
+
+## F1. Influence mods and influence exalts
+* Influences: Shaper, Elder, Crusader, Redeemer (tag `_eyrie`), Hunter (`_basilisk`), Warlord (`_adjudicator`). An item normally has at most one; two only through Awakener's Orb (F2). Engine bits: shaper 1, elder 2, crusader 4, redeemer 8, hunter 16, warlord 32.
+* Mod data (RePoE 3.30.0.4, checked by script): influence mods have weight only with their influence tag; none spawns under two influences; adding an influence tag changes no plain mod's weight. Hubris Circlet ilvl 86 influence mods (prefix/suffix count, weight sums): Shaper 11/20 (5600/11100), Elder 21/12 (13200/8000), Crusader 4/8 (2000/4625), Redeemer 5/11 (1750/5250), Hunter 15/6 (7500/2750), Warlord 8/10 (3625/4750); plain pool 54275/69400.
+* Influence Exalted Orbs (all six): rare item **with no influence** -> sets the influence and adds one mod of it (the usual Exalt draw restricted to that influence's mods). poe.ninja 2026-11-20: Shaper 70.1c, Hunter 63.0c, Warlord 46.6c, Crusader 26.2c, Redeemer 13.8c, Elder 13.3c. The ilvl gate is not documented (the mods themselves need about ilvl 68). Engine `exalt:<influence>`.
+* Beastcraft B04 "Add a Mod to a <influence> Item": Shaper = Fenumal Devourer, Elder = Saqawine Blood Viper, Crusader = Farric Goliath, Redeemer = Fenumal Queen, Hunter = Craicic Watcher, Warlord = Fenumal Scrabbler (Craicic Maw also listed); about 4c each. Adds one mod of that influence to an item that already has it; rarity requirement unknown (engine: rare only). Engine `beast:influence:<influence>`.
+* Harvest influence crafts: A2.4 (`harvest:influence`, `harvest:randomise_influence`). The 11 Harvest add/remove crafts say "from a non-Influenced item" (the engine refuses them on influenced items).
+* Influenced items cannot take Eldritch implicits or a Fracturing Orb.
+
+## F2. Awakener's Orb
+* Donor and target: same item class, each with exactly one influence, different influences. The donor is destroyed (click order matters). The target keeps base, ilvl, sockets and links, and becomes rare with both influences.
+* One influence mod is kept from each item (random if several; if the two share a mod group one is dropped at random); all other mods are rerolled. Forum: 2 kept + 2-4 new = 4-6 total. Ignores metamods; not usable on corrupted items. 150.6c.
+* Engine `awaken:<donor influence>[:<donor mod id>]` (or `awaken:<mod id>`): enumerates the kept-mod states, then a keep-all reroll with total count `count.awaken` (default = count.rare). Without a mod id the donor's kept mod is uniform over that influence's mods. Refuses fractured targets (UNVERIFIED).
+
+## F3. Orb of Dominance and Elevated mods
+* Body armour, boots, gloves, helmets; magic or rare; needs >= 2 influence mods. Picks two at random: removes one, upgrades the other one tier (T1 -> Elevated; Elevated -> reroll values). Side locks protect (A1.4: R R I I). 480.9c.
+* Elevated mods have weight 0 in RePoE (`...UberMaven` ids or "Elevated" names). `compile_pool.py` links each T1 influence mod to its Elevated version by same affix side and mod groups plus this class's influence tag (prefer a unique same-type candidate, else a single candidate). Hubris Circlet: 56 of 59 influence ladders linked; Two-Stone Ring: 1 of 50 (an unknown link means "no upgrade"). Engine `dominance`; target token `infl:<name|any>`; kind V in `find`.
+
+## F4. Harvest more/less likely (corrected)
+See A2.4: x90 (CoE) instead of the earlier 3.0 placeholder; "more likely" keeps the mod count. The engine now computes these exactly; they stay out of `rank` because consecutive tries depend on the previous item.
+
+## F5. Eldritch currency, engine model
+* Start tokens `exarch` / `eater` (dominant side) / `eldritch` (tied: no Eldritch Chaos/Exalt/Annul). Armour classes only; cannot be combined with an influence.
+* Eldritch Chaos count model: total count drawn from count.rare as usual; the non-dominant side and fractured mods are kept and counted; new mods go only to the dominant side. This matches maxroll ("1-2 modifiers are added and sometimes 3"; with a fractured mod on the dominant side "usually none are added").
+* Orb of Conflict: raises one implicit and lowers the other; equal tiers 50%, each tier of difference shifts the odds by about 11 points (C5). The engine draws the new dominance from `eldritch.conflict_outcomes` (default 50/50) and does not track implicit tiers.
+
+## F6. Fractured mods, engine model
+* Start token `frac:<mod id>`; fractured mods sit first, are never removed (Chaos, Scour, Annul, Harvest, Eldritch) and count toward the mod count and caps. Scouring an item with only fractured mods left gives a normal item that keeps them.
+* `fracture` (Fracturing Orb, 1334c): rare with >= 4 mods, not influenced, no fractured mod yet; one non-crafted mod, chosen uniformly (UNVERIFIED), becomes fractured.
+
+## F7. Memory Strands (not modelled)
+* Items carry 0-100 strands. Currency consumes strands and uses them to raise the lowest tier it can roll. Orb of Remembrance (93.9c) randomises the count on normal items; Orb of Unravelling (10.6c) consumes them to upgrade tiers. In 3.30 the Originator Voidstone no longer adds strands.
+* Strands used per use: Transmutation/Augmentation/Alteration 8; Regal/Exalted 16; Alchemy/Chaos/Binding/Chance 50; influence exalts 16; Awakener's 100; Tainted Chaos 60 / Exalted 16; Eldritch Chaos 60 / Exalted 16; Veiled Chaos 80; essences 80; Foulborn Augmentation 32 / Regal 48 / Exalted 28; Cyaxan's Ducat 80. Fossils and Harvest use none (maxroll: fossils/Harvest first, basic orbs last).
+* Tiers still possible for a 13-tier mod (community findings): 0 strands 13; 1 -> 9; 2-9 -> 8; 10-21 -> 7; 22-37 -> 6; 38-61 -> 5; 62+ -> 4.
+* Engine: every item is treated as strand-free. A future `strands` start token would apply the tier floor to every draw.
+
+---
+# PART G - TECHNIQUE CATALOGUE (maxroll; 3.23-3.30 era, mechanics unchanged unless noted)
+How each maps onto the engine (`route` files chain steps; `eval` gives one-step odds).
+
+| # | Technique | Steps and published odds | Engine |
+|---|---|---|---|
+| G1 | Essence first, metamods after | Essences refuse items with metamods, so build the essence side first, then lock. Elder RF helmet: Essence of Horror until a Burning Damage suffix (1/25); bench a mana prefix so Exalt can't hit it; Exalt for Concentrated Effect (1/22); after 2 misses lock suffixes + Scour; about 11 suffix locks (22 Divine at 3.23 prices; the full lock is now item-dependent, A1.3) | route: essence, bench, exalt, lockS + scour |
+| G2 | Deterministic Exalt with Cannot-roll-Attack | Quiver: suffixes full incl. the metamod; only two non-attack prefixes exist, so every Exalt adds one of them | `exalt` on a start with `noattack` |
+| G3 | Annul cycling under Cannot-roll-Attack | Used the metamod to shield attack mods from Annul. **Obsolete since 3.30**: Annul can now remove them (A1.4) | not applicable |
+| G4 | Multimod finish | 3 good mods + "Can have up to 3 Crafted Modifiers" + 2 bench mods | `multi` + bench |
+| G5 | Lock + Harvest add/remove (+2 physical amulet) | Prefix lock + Cannot-roll-Attack; Harvest "add physical, remove another": the removal can only hit a suffix or metamod, the add can only be +1 physical gems | `harvest:addremove:physical` with `lockP noattack` |
+| G6 | Mod-group blocking | Bench a mod of an unwanted group so Exalt / Eldritch Exalt / Veiled can't roll it | bench step before the slam |
+| G7 | Veiled Exalt behind a lock | 3 wanted + 1 junk on a side: lock, Veiled Exalt = 50% to keep the wanted mod; 2 open suffixes with multimod + prefix lock = 66% | not modelled (veiled pool) |
+| G8 | 7-step meta recipe | 3 wanted mods (Harvest/fossil/essence/Awakener's) -> prefix lock -> Harvest reforge with a tag -> Veiled cycles -> block + unveil -> bench finish | route |
+| G9 | Eldritch suffix craft (10 steps) | Essence suffix -> Veiled Exalt + suffix lock to 2 good suffixes -> Ember for Exarch dominance -> bench-block the heaviest prefix -> Eldritch Exalt, Eldritch Annul misses -> repeat -> unblock, final Eldritch Exalt -> bench last prefix | `eldritch:exalt`, `eldritch:annul`, bench, route |
+| G10 | Awakener's + Dominance | Dominance each base until the wanted influence mod is Elevated (50/50 with two influence mods), then merge with Awakener's; then lock + Veiled / Harvest | `dominance`, `awaken:<infl>:<mod>` |
+| G11 | Fossil combos | Bow: Corroded + Jagged + Metallic on ilvl 64+ -> +2 bow gems and +1 socketed gems, 1/8, about 1131c | `rank` (fossil combos) |
+| G12 | Eldritch implicit climbing | Grand Ember/Ichor until the wanted implicit -> Exceptional on the other side -> Conflict -> repeat until Perfect. Desired implicit 3-5% with Lesser, 1-3% with Greater+ | not modelled (implicits) |
+
 # SUMMARY OF UNVERIFIED ITEMS (checklist for the implementer)
-1. Which mods a 1/2-slot lock protects when more exist (random per Exiled Bench; undocumented officially). 2. `more/less likely` Harvest multipliers. 3. Whether Chaos Orb keeps a prefix/suffix lock (assumed yes). 4. Jewel mod-count ratio, magic 1-vs-2 split. 5. Fossil multi-fossil stacking. 6. Recombinator 3.30 count table for pools 1-3. 7. Foulborn tier-block percentage. 8. Resist/damage swap lifeforce colour pairing. 9. Beast B01 metamod outcome distribution and whether 1/2 locks are included. 10. Sacred Orb = `CurrencyRerollDefences`. 11. Gwennen craft list.
+1. Which mods a 1/2-slot lock protects when more exist (random per Exiled Bench; undocumented officially). 2. `more/less likely` Harvest multipliers. 3. Whether Chaos Orb keeps a prefix/suffix lock (assumed yes). 4. Jewel mod-count ratio, magic 1-vs-2 split. 5. Fossil multi-fossil stacking. 6. Recombinator 3.30 count table for pools 1-3. 7. Foulborn tier-block percentage. 8. Resist/damage swap lifeforce colour pairing. 9. Beast B01 metamod outcome distribution and whether 1/2 locks are included. 10. Sacred Orb = `CurrencyRerollDefences`. 11. Gwennen craft list. 12. Harvest "more likely" x90 (CoE) vs x10 (maxroll); "less likely" multiplier and its mod-count rule. 13. Awakener's Orb total mod count (engine: count.rare, kept mods included) and whether a fractured target is allowed (engine refuses). 14. Harvest randomise-influence distribution (uniform over same-size sets? may it keep the current set?). 15. Beast B04 rarity requirement (engine: rare only). 16. Orb of Conflict odds per tier gap (engine: flat `eldritch.conflict_outcomes`). 17. Eldritch Chaos new-mod count (engine model F5). 18. Elevated mod mapping for ladders with no unique same-type candidate (F3). 19. Fracturing Orb pick uniform over non-crafted mods. 20. Memory Strand breakpoints are community findings (F7).
+
+**Sources blocked during the 2026-11-21 pass** (facts above come from mirrors instead): poewiki.net (Anubis bot challenge on every page tried), pathofexile.fandom.com (HTTP 402), poedb.tw/us/Beastcrafting (404).

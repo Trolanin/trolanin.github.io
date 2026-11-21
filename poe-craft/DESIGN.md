@@ -19,10 +19,14 @@ and is strictly rate-limited.
 
 ## Pipeline
 1. `fetch_data.py`: downloads game data + prices into `data/` (git-ignored).
-2. `compile_pool.py`: base + ilvl + influence → the rollable mod pool, with weights per method
+2. `compile_pool.py`: base + ilvl → the rollable mod pool incl. all six influences' mods and their
+   Elevated upgrades, with weights per method
    (normal, each essence, each fossil combo) → compact file in `build/pools/`.
 3. `poecraft.exe` (C++20, MSVC): the engine.
-   - The item state is a set of explicit mods (≤ 3 prefixes, ≤ 3 suffixes, mod groups exclusive).
+   - The item state is a set of explicit mods (≤ 3 prefixes, ≤ 3 suffixes, mod groups exclusive),
+     plus its influences (bit mask), Eldritch dominance and how many mods are fractured.
+     Influence mods are only drawable when the item has that influence; the weight tables are
+     built lazily per influence mask.
    - Each method is `apply(state) → distribution over next states`, sampled allocation-free.
    - `eval`: multithreaded Monte-Carlo success odds with a confidence interval, cross-checked
      against exact formulas where tractable. Expected cost = cost per attempt ÷ p.
@@ -40,12 +44,15 @@ and is strictly rate-limited.
 Every method below is the same kind of object, so the route search can chain any of them:
 - **Bench:** metamods (prefixes / suffixes cannot be changed, cannot roll attack / caster mods,
   up to 3 crafted mods) and ordinary bench crafts. Each costs currency and takes up an affix slot.
-- **Harvest:** reforges (plain, keep prefixes, keep suffixes, tag-targeted "reforge with X",
-  "more likely") and any augment/remove-add crafts that exist in 3.30. Cost is lifeforce × the
+- **Harvest:** reforges (tag-targeted "reforge with X", "more/less likely" with exact odds,
+  influence reforge, randomise influence) and any augment/remove-add crafts that exist in 3.30. Cost is lifeforce × the
   lifeforce price.
 - **Bestiary:** imprint, which acts as a retry token in the route search, plus split,
   "remove prefix, add suffix" and the reverse, and aspects. Cost is the beast's price.
-- **Eldritch:** eldritch currencies (chaos, exalt, annul).
+- **Influence:** influence exalts, Awakener's Orb (split into kept-mod states, then a reroll),
+  Orb of Dominance (T1 → Elevated), the influence beastcrafts.
+- **Eldritch and fractured:** Eldritch Chaos / Exalted / Annulment on the dominant side, Orb of
+  Conflict, Fracturing Orb; fractured mods survive every reroll and removal.
 
 What's available in 3.30 and the exact numbers (lifeforce amounts, "more likely" multipliers) are
 kept in `mechanics.cfg`, which `docs/mechanics.md` backs with sources. That way a patch change is a

@@ -14,7 +14,8 @@
 //   check <cond> [else restart | else goto <step> | else <method> goto <step> | else fail]
 // Steps are numbered from 1 in file order (directives other than steps are not numbered).
 // Conditions: requirement labels from the target joined by '+' (and) and '|' (or), '!' negates;
-// '*' = all requirements; also openP openS open normal magic rare imprint lockP lockS full empty.
+// '*' = all requirements; also openP openS open normal magic rare imprint lockP lockS full empty,
+// influenced, an influence name (shaper ... warlord), fractured, exarch, eater, eldritch.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -50,7 +51,7 @@ Route parseRoute(Ctx& c, const Target& t, const std::string& path) {
     if (!f) throw std::runtime_error("cannot open route " + path);
     Route r;
     r.name = path;
-    r.start.it.rarity = NORMAL;
+    r.start = parseStart(c, "normal");  // carries the pool's default influence
     r.success = Cond::parse("*", t);
     std::string raw;
     while (std::getline(f, raw)) {

@@ -51,10 +51,38 @@ static std::vector<std::string> listField(const std::string& s) {
     return split(s, ',');
 }
 
+// ------------------------------------------------------------------ influences
+uint8_t inflBit(const std::string& nameIn) {
+    std::string n = lower(trim(nameIn));
+    for (int i = 0; i < NINFL; i++)
+        if (n == kInflName[i]) return (uint8_t)(1u << i);
+    // the game's internal tag names (helmet_eyrie, ...)
+    if (n == "eyrie") return 1u << 3;
+    if (n == "basilisk") return 1u << 4;
+    if (n == "adjudicator") return 1u << 5;
+    return 0;
+}
+std::string inflNames(uint8_t mask) {
+    std::string s;
+    for (int i = 0; i < NINFL; i++)
+        if (mask >> i & 1) s += (s.empty() ? "" : "+") + std::string(kInflName[i]);
+    return s.empty() ? "-" : s;
+}
+static uint8_t inflField(const std::string& field) {  // "shaper,hunter" or "-"
+    uint8_t m = 0;
+    for (auto& x : listField(field)) {
+        uint8_t b = inflBit(x);
+        if (!b) throw std::runtime_error("unknown influence '" + x + "'");
+        m |= b;
+    }
+    return m;
+}
+
 // ------------------------------------------------------------------ pool
 Pool Pool::load(const std::string& path) {
     Pool p;
     std::unordered_map<std::string, uint16_t> gid;
+    bool availSeen = false;
     for (auto& line : readLines(path)) {
         if (line.empty() || line[0] == '#') continue;
         auto f = split(line, '\t');
@@ -62,8 +90,12 @@ Pool Pool::load(const std::string& path) {
         if (rec == "H" && f.size() >= 3) {
             if (f[1] == "base" && f.size() >= 6) {
                 p.base = f[2]; p.itemClass = f[3]; p.ilvl = std::atoi(f[4].c_str()); p.influences = f[5];
+                p.defInfl = inflField(f[5]);
             } else if (f[1] == "tags") {
                 p.baseTags = listField(f[2]);
+            } else if (f[1] == "influences") {
+                p.avail = inflField(f[2]);
+                availSeen = true;
             }
         } else if (rec == "M") {
             if (f.size() < 14) throw std::runtime_error("bad M record: " + line);
@@ -74,7 +106,7 @@ Pool Pool::load(const std::string& path) {
             m.side = f[3] == "P" ? PRE : SUF;
             switch (f[4][0]) {
                 case 'R': m.kind = K_R; break; case 'E': m.kind = K_E; break; case 'D': m.kind = K_D; break;
-                case 'C': m.kind = K_C; break; default: m.kind = K_A; break;
+                case 'C': m.kind = K_C; break; case 'V': m.kind = K_V; break; default: m.kind = K_A; break;
             }
             m.weight = std::atof(f[5].c_str());
             m.groups = listField(f[6]);
@@ -86,6 +118,8 @@ Pool Pool::load(const std::string& path) {
                 {"lockS2", M_LOCKS2}, {"multi", M_MULTI}, {"noattack", M_NOATTACK}, {"nocaster", M_NOCASTER}};
             for (auto& [n, v] : metas) if (f[12] == n) m.meta = v;
             m.text = f[13];
+            if (f.size() >= 15) m.infl = inflField(f[14]);         // pool v2: influence of the mod
+            if (f.size() >= 16 && f[15] != "-") m.upId = f[15];    // pool v2: Orb of Dominance upgrade
             for (auto& g : m.groups) {
                 auto it = gid.find(g);
                 uint16_t id;
@@ -122,6 +156,12 @@ Pool Pool::load(const std::string& path) {
     }
     if (p.mods.empty()) throw std::runtime_error("pool has no mods: " + path);
     if (p.mods.size() >= 0xffff) throw std::runtime_error("pool too large");
+    if (!availSeen) {  // v1 pool or hand-made: the influences its mods use, else all six
+        for (auto& m : p.mods) p.avail |= m.infl;
+        if (!p.avail) p.avail = (1u << NINFL) - 1;
+    }
+    for (auto& m : p.mods)
+        if (!m.upId.empty() && p.find(m.upId) < 0) throw std::runtime_error("pool: unknown upgrade mod " + m.upId);
     return p;
 }
 
@@ -200,6 +240,8 @@ Rules Rules::from(const Config& c) {
     Rules r;
     r.countRare = CountDist::parse(c.str("count.rare", "4:8 5:3 6:1"));
     r.countMagic = CountDist::parse(c.str("count.magic", "1:1 2:1"));
+    r.countAwaken = CountDist::parse(c.str("count.awaken", c.str("count.rare", "4:8 5:3 6:1")));
+    r.countNone = CountDist::parse("0:1");
     auto cr = splitWs(c.str("cap.rare", "3 3")), cm = splitWs(c.str("cap.magic", "1 1"));
     r.capRare[0] = std::atoi(cr.at(0).c_str()); r.capRare[1] = std::atoi(cr.at(1).c_str());
     r.capMagic[0] = std::atoi(cm.at(0).c_str()); r.capMagic[1] = std::atoi(cm.at(1).c_str());
@@ -218,19 +260,39 @@ Rules Rules::from(const Config& c) {
     }
     r.essRareMinLevel = (int)c.num("essence.rare_min_level", 5);
     r.harvKeep = c.num("harvest.available.keep", 0) != 0;
-    r.harvSameMore = c.num("harvest.same_type_more_mult", 3);
-    r.harvSameLess = c.num("harvest.same_type_less_mult", 1.0 / 3);
+    r.harvSameMore = c.num("harvest.same_type_more_mult", 90);
+    r.harvSameLess = c.num("harvest.same_type_less_mult", 1.0 / 90);
+    r.harvMoreKeepCount = c.num("harvest.more_keeps_count", 1) != 0;
+    r.harvLessKeepCount = c.num("harvest.less_keeps_count", 0) != 0;
+    r.randInflExcludeCurrent = c.num("harvest.randomise_influence.exclude_current", 0) != 0;
+    r.eldritchChaosLocks = c.num("eldritch.chaos_honours_locks", 0) != 0;
     for (auto& [k, v] : c.kv)
         if (k.rfind("harvest.tagalias.", 0) == 0) r.tagAlias[k.substr(17)] = v;
     r.beastMeta = splitWs(c.str("beast.meta_outcomes", "noattack nocaster lockP lockS multi"));
+    double tot = 0;
+    for (auto& w : splitWs(c.str("eldritch.conflict_outcomes", "exarch:1 eater:1"))) {
+        auto k = w.find(':');
+        std::string n = lower(w.substr(0, k));
+        uint8_t d = n == "exarch" ? DOM_EXARCH : n == "eater" ? DOM_EATER : n == "tie" ? DOM_TIE : 0xff;
+        if (d == 0xff || k == std::string::npos) throw std::runtime_error("eldritch.conflict_outcomes: expected exarch:w eater:w tie:w");
+        double p = std::atof(w.c_str() + k + 1);
+        r.conflict.push_back({d, p});
+        tot += p;
+    }
+    if (tot <= 0) throw std::runtime_error("eldritch.conflict_outcomes: weights sum to 0");
+    for (auto& x : r.conflict) x.second /= tot;
     return r;
 }
 
 // ------------------------------------------------------------------ alias tables
-void Alias::build(const std::vector<double>& w, int sideFilter, const std::vector<uint8_t>& side) {
+void Alias::build(const std::vector<double>& w, int sideFilter, const std::vector<uint8_t>& side,
+                  const std::vector<uint8_t>& infl, uint8_t mask) {
     idx.clear(); alias.clear(); prob.clear(); total = 0;
     for (size_t i = 0; i < w.size(); i++)
-        if (w[i] > 0 && (sideFilter < 0 || side[i] == sideFilter)) { idx.push_back((uint16_t)i); total += w[i]; }
+        if (w[i] > 0 && (sideFilter < 0 || side[i] == sideFilter) && (!infl[i] || (infl[i] & mask))) {
+            idx.push_back((uint16_t)i);
+            total += w[i];
+        }
     size_t n = idx.size();
     if (!n) return;
     std::vector<double> q(n);
@@ -240,9 +302,7 @@ void Alias::build(const std::vector<double>& w, int sideFilter, const std::vecto
         (q[k] < 1 ? small : large).push_back(k);
     }
     prob.assign(n, 1.0);
-    alias.assign(n, 0);
-    std::vector<uint16_t> al(n);
-    for (size_t k = 0; k < n; k++) al[k] = idx[k];
+    std::vector<uint16_t> al(idx);
     while (!small.empty() && !large.empty()) {
         size_t s = small.back(); small.pop_back();
         size_t l = large.back();
@@ -253,22 +313,47 @@ void Alias::build(const std::vector<double>& w, int sideFilter, const std::vecto
     }
     for (auto k : large) { prob[k] = 1; al[k] = idx[k]; }
     for (auto k : small) { prob[k] = 1; al[k] = idx[k]; }
-    alias = al;
+    alias = std::move(al);
+}
+void WeightTable::build(const std::vector<uint8_t>& side, const std::vector<uint8_t>& infl) {
+    std::lock_guard<std::mutex> g(mu_);
+    side_ = &side;
+    infl_ = &infl;
+    used_ = 0;
+    for (size_t i = 0; i < w.size(); i++)
+        if (w[i] > 0) used_ |= infl[i];
+    for (auto& s : sets_) s.store(nullptr, std::memory_order_relaxed);
+    owned_.clear();
+}
+const AliasSet& WeightTable::slow(uint8_t mask) const {  // first use of an influence mask: build its tables
+    std::lock_guard<std::mutex> g(mu_);
+    if (const AliasSet* s = sets_[mask].load(std::memory_order_acquire)) return *s;
+    if (!side_) throw std::logic_error("WeightTable used before build()");
+    auto set = std::make_unique<AliasSet>();
+    set->a[0].build(w, -1, *side_, *infl_, mask);
+    set->a[1].build(w, PRE, *side_, *infl_, mask);
+    set->a[2].build(w, SUF, *side_, *infl_, mask);
+    const AliasSet* p = set.get();
+    owned_.push_back(std::move(set));
+    sets_[mask].store(p, std::memory_order_release);
+    return *p;
 }
 
 // ------------------------------------------------------------------ Ctx
 Ctx::Ctx(const Pool& p, const Rules& r, Prices& pr) : pool(p), rules(r), prices(pr) {
     size_t n = p.mods.size();
-    side.resize(n); kind.resize(n); meta.resize(n); isAttack.resize(n); isCaster.resize(n); g0.resize(n); g1.resize(n);
+    side.resize(n); kind.resize(n); meta.resize(n); isAttack.resize(n); isCaster.resize(n); infl.resize(n);
+    g0.resize(n); g1.resize(n); up.assign(n, -1);
     base.w.assign(n, 0);
     for (size_t i = 0; i < n; i++) {
         auto& m = p.mods[i];
-        side[i] = m.side; kind[i] = m.kind; meta[i] = m.meta;
+        side[i] = m.side; kind[i] = m.kind; meta[i] = m.meta; infl[i] = m.infl;
         isAttack[i] = m.hasTag("attack"); isCaster[i] = m.hasTag("caster");
         g0[i] = m.grp[0]; g1[i] = m.ngrp > 1 ? m.grp[1] : 0xffff;
         if (m.kind == K_R) base.w[i] = m.weight;
+        if (!m.upId.empty()) up[i] = p.find(m.upId);
     }
-    base.build(side);
+    base.build(side, infl);
 }
 ItemFlags Ctx::flags(const Item& it) const {
     ItemFlags f;
@@ -291,8 +376,9 @@ int Ctx::draw(const Item& it, const WeightTable& wt, uint8_t sideMask, Rng& r, c
     bool oP = (sideMask & 1) && open(it, PRE), oS = (sideMask & 2) && open(it, SUF);
     if (!oP && !oS) return -1;
     ItemFlags f = flags(it);
-    if (nb == 0) {  // fast path: alias draw + rejection (exact conditional sampling)
-        const Alias& a = oP && oS ? wt.a[0] : oP ? wt.a[1] : wt.a[2];
+    if (nb == 0) {  // fast path: alias draw (influence-filtered table) + rejection = exact conditional sampling
+        const AliasSet& as = wt.forMask(it.infl);
+        const Alias& a = oP && oS ? as.a[0] : oP ? as.a[1] : as.a[2];
         if (a.total <= 0) return -1;
         for (int t = 0; t < 48; t++) {
             int m = a.sample(r);
@@ -349,6 +435,15 @@ Target Target::load(const std::string& path, const Pool& pool) {
             else { kind = tok.substr(0, c); val = tok.substr(c + 1); }
             auto le = val.find("<=");
             if (le != std::string::npos) { maxTier = std::atoi(val.c_str() + le + 2); val = val.substr(0, le); }
+            uint8_t ib = 0;
+            if (kind == "infl") {
+                ib = lower(val) == "any" ? (uint8_t)((1u << NINFL) - 1) : inflBit(val);
+                if (!ib) throw std::runtime_error("target: unknown influence '" + val + "' (shaper elder crusader redeemer hunter warlord any)");
+            }
+            if (kind == "text") {  // case-insensitive substring of the mod text; '_' stands for a space
+                val = lower(val);
+                std::replace(val.begin(), val.end(), '_', ' ');
+            }
             size_t before = r.mods.size();
             for (size_t m = 0; m < pool.mods.size(); m++) {
                 auto& mod = pool.mods[m];
@@ -357,7 +452,9 @@ Target Target::load(const std::string& path, const Pool& pool) {
                 else if (kind == "type") hit = mod.type == val && tierOk(mod, maxTier);
                 else if (kind == "group") hit = std::find(mod.groups.begin(), mod.groups.end(), val) != mod.groups.end() && tierOk(mod, maxTier);
                 else if (kind == "tag") hit = mod.hasTag(val) && mod.kind == K_R && tierOk(mod, maxTier);
-                else throw std::runtime_error("target: unknown token kind '" + kind + "' (use mod:, type:, group:, tag:)");
+                else if (kind == "infl") hit = (mod.infl & ib) && (mod.kind == K_R || mod.kind == K_V) && tierOk(mod, maxTier);
+                else if (kind == "text") hit = lower(mod.text).find(val) != std::string::npos && tierOk(mod, maxTier);
+                else throw std::runtime_error("target: unknown token kind '" + kind + "' (use mod:, type:, group:, tag:, infl:, text:)");
                 if (hit && std::find(r.mods.begin(), r.mods.end(), (int)m) == r.mods.end()) r.mods.push_back((int)m);
             }
             if (r.mods.size() == before) std::fprintf(stderr, "warning: target token '%s' matches no mod on this base\n", tok.c_str());
@@ -383,9 +480,13 @@ Cond Cond::parse(const std::string& s, const Target& t) {
             static const std::pair<const char*, Atom> atoms[] = {
                 {"openP", OPENP}, {"openS", OPENS}, {"open", OPEN}, {"normal", NORMALR}, {"magic", MAGICR},
                 {"rare", RARER}, {"imprint", IMPRINT}, {"lockP", LOCKP}, {"lockS", LOCKS}, {"full", FULL},
-                {"empty", EMPTY}, {"true", TRUE_}};
+                {"empty", EMPTY}, {"true", TRUE_}, {"influenced", INFLUENCED}, {"fractured", FRACTURED},
+                {"exarch", EXARCH}, {"eater", EATER}, {"eldritch", ELDRITCH}};
             bool found = false;
             for (auto& [n, v] : atoms) if (a == n) { term.a = v; found = true; }
+            if (!found && t.label(a) < 0 && a != "*") {
+                if (uint8_t b = inflBit(a)) { term.a = INFL; term.reqs = b; found = true; }
+            }
             if (!found) {
                 term.a = REQS;
                 if (a == "*") term.reqs = t.all;
@@ -421,6 +522,12 @@ bool Cond::eval(const Ctx& c, const State& s, const Target& t) const {
                 case FULL: v = !c.open(it, PRE) && !c.open(it, SUF); break;
                 case EMPTY: v = it.n == 0; break;
                 case TRUE_: v = true; break;
+                case INFLUENCED: v = it.infl != 0; break;
+                case INFL: v = (it.infl & term.reqs) != 0; break;
+                case FRACTURED: v = it.nfrac > 0; break;
+                case EXARCH: v = it.dom == DOM_EXARCH; break;
+                case EATER: v = it.dom == DOM_EATER; break;
+                case ELDRITCH: v = it.dom != DOM_NONE; break;
             }
             if (v == term.neg) { ok = false; break; }
         }
@@ -433,14 +540,27 @@ bool Cond::eval(const Ctx& c, const State& s, const Target& t) const {
 State parseStart(const Ctx& c, const std::string& spec) {
     State s;
     s.it.rarity = RARE;
+    uint8_t infl = c.pool.defInfl;
+    bool explicitInfl = false;
+    std::vector<int> frac, mods;
     for (auto& w : splitWs(spec)) {
-        if (w == "normal") s.it.rarity = NORMAL;
-        else if (w == "magic") s.it.rarity = MAGIC;
-        else if (w == "rare") s.it.rarity = RARE;
-        else {
-            std::string id = w.rfind("mod:", 0) == 0 ? w.substr(4) : w;
+        std::string lw = lower(w);
+        if (lw == "normal") s.it.rarity = NORMAL;
+        else if (lw == "magic") s.it.rarity = MAGIC;
+        else if (lw == "rare") s.it.rarity = RARE;
+        else if (lw == "noinfl" || lw == "uninfluenced") { infl = 0; explicitInfl = true; }
+        else if (lw == "exarch") s.it.dom = DOM_EXARCH;
+        else if (lw == "eater") s.it.dom = DOM_EATER;
+        else if (lw == "eldritch") s.it.dom = DOM_TIE;
+        else if (uint8_t b = c.pool.find(w) < 0 ? inflBit(lw) : 0) {
+            if (!explicitInfl) infl = 0;
+            explicitInfl = true;
+            infl |= b;
+        } else {
+            bool fr = w.rfind("frac:", 0) == 0;
+            std::string id = fr ? w.substr(5) : w.rfind("mod:", 0) == 0 ? w.substr(4) : w;
             int m = c.pool.find(id);
-            if (m < 0) {  // metamod shorthand: lockP, lockS, multi, noattack, nocaster
+            if (m < 0 && !fr) {  // metamod shorthand: lockP, lockS, multi, noattack, nocaster
                 static const std::pair<const char*, Meta> metas[] = {
                     {"lockP", M_LOCKP}, {"lockS", M_LOCKS}, {"multi", M_MULTI}, {"noattack", M_NOATTACK}, {"nocaster", M_NOCASTER}};
                 for (auto& [n, v] : metas)
@@ -448,20 +568,39 @@ State parseStart(const Ctx& c, const std::string& spec) {
                         for (size_t k = 0; k < c.pool.mods.size(); k++)
                             if (c.pool.mods[k].meta == v) { m = (int)k; break; }
             }
-            if (m < 0) throw std::runtime_error("start: unknown mod '" + id + "'");
-            if (s.it.n >= MAXA) throw std::runtime_error("start: too many mods");
-            s.it.add(m);
+            if (m < 0) throw std::runtime_error("start: unknown mod or word '" + id + "' (try: poecraft find --text ...)");
+            (fr ? frac : mods).push_back(m);
         }
     }
+    if (frac.size() + mods.size() > (size_t)MAXA) throw std::runtime_error("start: too many mods");
+    if (frac.size() > 1) std::fprintf(stderr, "warning: start: an item normally has at most one fractured mod\n");
+    for (int m : frac) s.it.add(m);
+    s.it.nfrac = (uint8_t)frac.size();
+    for (int m : mods) s.it.add(m);
+    if (s.it.dom && !explicitInfl) infl = 0;  // Eldritch implicits and influence exclude each other
+    for (int i = 0; i < s.it.n; i++) {        // an influence mod brings its influence along
+        uint8_t mi = c.infl[s.it.m[i]];
+        if (!mi || (mi & infl)) continue;
+        if (explicitInfl || s.it.dom)
+            throw std::runtime_error("start: " + c.pool.mods[s.it.m[i]].id + " needs influence " + inflNames(mi));
+        infl |= (uint8_t)(mi & -mi);
+    }
+    s.it.infl = infl;
+    if (s.it.infl && s.it.dom) throw std::runtime_error("start: an item cannot have both influence and Eldritch implicits");
+    if (s.it.dom && !isArmourClass(c.pool.itemClass))
+        throw std::runtime_error("start: Eldritch implicits only exist on body armours, helmets, gloves and boots");
+    if (std::popcount(s.it.infl) > 2) std::fprintf(stderr, "warning: start: more than two influences\n");
     return s;
 }
 std::string describe(const Ctx& c, const Item& it) {
     static const char* rn[] = {"normal", "magic", "rare"};
     std::string s = rn[it.rarity];
+    if (it.infl) s += " " + inflNames(it.infl);
+    if (it.dom) s += it.dom == DOM_EXARCH ? " exarch" : it.dom == DOM_EATER ? " eater" : " eldritch(tie)";
     s += ":";
     for (int i = 0; i < it.n; i++) {
         auto& m = c.pool.mods[it.m[i]];
-        s += std::string(" [") + (m.side == PRE ? "P" : "S") + (m.kind == K_C ? "c" : "") + "] " + m.id;
+        s += std::string(" [") + (m.side == PRE ? "P" : "S") + (m.kind == K_C ? "c" : "") + (i < it.nfrac ? "f" : "") + "] " + m.id;
         if (m.tier) s += " T" + std::to_string(m.tier);
     }
     return s;
