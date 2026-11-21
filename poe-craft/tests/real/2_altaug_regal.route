@@ -1,0 +1,7 @@
+route alt+aug for ESP+RES on a magic item, regal hoping for FES, else scour and start over
+start normal
+restart scour
+do transmute
+repeat altaug until ESP+RES
+do regal
+check FES else restart
