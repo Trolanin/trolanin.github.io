@@ -5,6 +5,7 @@ https://trolanin.github.io/ within about a minute. Each project is a subfolder, 
 `/<folder>/`. `index.html` and `README.md` list the projects; update both when adding one.
 
 ## Ground rules
+- Every project README starts with the owner's disclaimer: "⚠️ **Heads up:** this is AI vibe-coded (built with Claude) by a dumbass who has no idea what he's doing. Use at your own risk; no warranty, no promises." Add it to any new project or repo.
 - Anything committed here is public. Never add secrets, personal data, or other people's
   copyrighted material.
 - Projects are private by default. Only add a project here after the owner has said it should be

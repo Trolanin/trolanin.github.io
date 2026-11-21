@@ -1,5 +1,7 @@
 # LED Strip Simulator
 
+> ⚠️ **Heads up:** this is AI vibe-coded (built with Claude) by a dumbass who has no idea what he's doing. Use at your own risk; no warranty, no promises.
+
 Browser simulator for ESP32 addressable-LED sketches (FastLED / Adafruit_NeoPixel), with a 60-LED strip, ring or matrix view and real WS2812 timing.
 
 ## Quick start

@@ -1,5 +1,7 @@
 # Public projects
 
+> ⚠️ **Heads up:** this is AI vibe-coded (built with Claude) by a dumbass who has no idea what he's doing. Use at your own risk; no warranty, no promises.
+
 Everything here is public and served by GitHub Pages at <https://trolanin.github.io/>.
 Each project is a subfolder and is live at `https://trolanin.github.io/<folder>/`.
 
