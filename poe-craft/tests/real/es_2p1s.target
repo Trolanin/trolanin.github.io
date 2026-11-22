@@ -1,5 +1,0 @@
-# Hubris Circlet, 2 prefixes + 1 suffix:
-#   T1/T2 % increased Energy Shield, T1/T2 + maximum Energy Shield, any T1/T2 fire/cold/lightning resistance
-need 1 as ESP type:LocalEnergyShieldPercent<=2
-need 1 as FES type:LocalEnergyShield<=2
-need 1 as RES type:FireResistance<=2 type:ColdResistance<=2 type:LightningResistance<=2

@@ -8,4 +8,3 @@ Each project is a subfolder and is live at `https://trolanin.github.io/<folder>/
 | Project | Live | About |
 |---|---|---|
 | [led-sim](led-sim/) | [designer](https://trolanin.github.io/led-sim/designer.html) · [simulator](https://trolanin.github.io/led-sim/) | Music-reactive LED designer and simulator for ESP32 (FastLED) |
-| [poe-craft](poe-craft/) | command line (no page yet) | Path of Exile 1 cheapest-route crafting planner: C++ engine, live poe.ninja prices, essences, fossils, Harvest, bench metamods, beastcrafts |

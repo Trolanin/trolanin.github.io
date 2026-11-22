@@ -33,13 +33,3 @@ Browser tools, no build step: `designer.html` (design → generated FastLED .ino
   lambdas: the build compiles against android.jar, which can't support them. The signing key stays out of this
   repo. `android.html` is the install page.
 - The owner prefers native C++ tooling. Ask before switching languages or stacks to avoid an install.
-
-## poe-craft: PoE1 crafting cost engine
-C++20/MSVC `poecraft.exe` (`build.bat`) plus Python stdlib scripts; see `poe-craft/README.md` and `DESIGN.md`.
-- Game rules and cost recipes live in `mechanics.cfg` (no recompile); `docs/mechanics.md` is the cited
-  rules spec with an UNVERIFIED checklist. Change a rule in the cfg and the doc together.
-- Pipeline: `fetch_data.py` (RePoE + poe.ninja into `data/`) → `compile_pool.py` (pool v2 into `build/pools/`)
-  → `prices.py` (`build/prices.txt`). `data/` and `build/` are git-ignored.
-- Tests: `python -I tests\run_tests.py` must stay all-pass; `--real` runs real data end to end. Exact odds and
-  Monte-Carlo must agree (the z check) for every new method.
-- poewiki.net blocks automated fetches (Anubis); use poedb, maxroll or Craft of Exile instead.

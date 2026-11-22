@@ -1,5 +1,0 @@
-route chaos until both ES prefixes (with a free suffix), bench "Prefixes cannot be changed", chaos for the suffix
-start rare
-repeat chaos until ESP+FES+openS
-do lockprefix
-repeat chaos until RES

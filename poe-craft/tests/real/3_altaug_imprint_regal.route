@@ -1,7 +1,0 @@
-route alt+aug for ESP+RES, imprint (beast), regal; on a miss restore the imprint and re-imprint
-start normal
-do transmute
-repeat altaug until ESP+RES
-do beast:imprint
-do regal
-check FES else beast:restore goto 3
