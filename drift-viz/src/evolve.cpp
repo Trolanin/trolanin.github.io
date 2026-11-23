@@ -9,8 +9,8 @@
 
 namespace {
 // lo..hi is the full range, reached at complexity 1. calmLo..calmHi is the range at
-// complexity 0, or right when the gene unlocks. Genes with a gate are off (0) below it.
-// Math genes count their gate from the "Math unlocks at" option instead of from 0.
+// complexity 0, or right when the gene's layer comes in. The gate column is no longer used
+// directly: each species draws its own thresholds (see kFeatures and newGates).
 // Integer genes don't drift; scene changes pick a new whole number.
 struct GeneDef { const wchar_t* name; float lo, hi, calmLo, calmHi, gate; bool drift; int group; bool math, integer; };
 const bool M = true, INTG = true;
@@ -87,9 +87,20 @@ const GeneDef kGenes[G_COUNT] = {
   { L"attractor spin", -0.3f,   0.3f,  -0.08f,  0.08f,  0.00f, true, GR_LAYERS, M },
 };
 
-// Options whose bit is set in mathMask count their gate from "Math unlocks at".
+// Genes that switch a layer or effect on (its amount). Each species draws its own threshold
+// for each row, so what shows up, and in what order, differs every time. Every other gene is
+// always live (it only matters while its layer is on). Genes in one row share a threshold.
+const int kFeatures[][2] = {
+  { G_SWIRL, -1 }, { G_HUE, -1 }, { G_DRIFT_X, G_DRIFT_Y }, { G_SPEC_RING, -1 }, { G_TUNNEL, -1 }, { G_SPARKLE, -1 },
+  { G_ORBS, -1 }, { G_CHROMA, -1 }, { G_ECHO, -1 }, { G_BEAT_FLASH, -1 },
+  { G_FLAME, -1 }, { G_FLAME_MIX, -1 }, { G_FLOW, -1 }, { G_VIEW, -1 }, { G_TILE, -1 }, { G_ATTR, -1 },
+};
+
+// Options whose bit is set in mathMask count their threshold from the species' math threshold.
+// noneFirst: option 0 means "off" and stays available at any complexity.
 struct ChoiceDef {
   const wchar_t* name; int n; float val[MAX_OPT]; float gate[MAX_OPT]; const wchar_t* label[MAX_OPT]; int group; unsigned mathMask;
+  bool noneFirst;
 };
 const unsigned ALL_BUT_0 = ~1u;
 const ChoiceDef kChoices[C_COUNT] = {
@@ -97,9 +108,9 @@ const ChoiceDef kChoices[C_COUNT] = {
     { L"circle", L"line", L"scope", L"spiral", L"rose", L"superformula", L"lissajous" }, GR_SHAPE, (1u << 5) | (1u << 6) },
   { L"copies", 5, { 1, 2, 3, 4, 6 }, { 0, 0.20f, 0.30f, 0.45f, 0.60f }, { L"×1", L"×2", L"×3", L"×4", L"×6" }, GR_SHAPE, 0 },
   { L"kaleidoscope", 7, { 1, 3, 4, 5, 6, 8, 12 }, { 0, 0.30f, 0.30f, 0.40f, 0.40f, 0.55f, 0.70f },
-    { L"off", L"3", L"4", L"5", L"6", L"8", L"12" }, GR_SYMMETRY, 0 },
-  { L"mirror", 4, { 0, 1, 2, 3 }, { 0, 0.35f, 0.45f, 0.60f }, { L"none", L"left-right", L"top-bottom", L"four-way" }, GR_SYMMETRY, 0 },
-  { L"echo flip", 4, { 0, 1, 2, 3 }, { 0, 0, 0, 0 }, { L"none", L"flip X", L"flip Y", L"flip XY" }, GR_LAYERS, 0 },
+    { L"off", L"3", L"4", L"5", L"6", L"8", L"12" }, GR_SYMMETRY, 0, true },
+  { L"mirror", 4, { 0, 1, 2, 3 }, { 0, 0.35f, 0.45f, 0.60f }, { L"none", L"left-right", L"top-bottom", L"four-way" }, GR_SYMMETRY, 0, true },
+  { L"echo flip", 4, { 0, 1, 2, 3 }, { 0, 0, 0, 0 }, { L"none", L"flip X", L"flip Y", L"flip XY" }, GR_LAYERS, 0, true },
   { L"tunnel shape", 4, { 0, 3, 4, 6 }, { 0, 0, 0, 0 }, { L"circles", L"triangles", L"squares", L"hexagons" }, GR_LAYERS, 0 },
   { L"flame", 24, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23 },
     { 0, 0, 0, 0, .02f, .02f, .04f, .04f, .06f, .06f, .08f, .08f, .1f, .1f, .12f, .12f, .15f, .15f, .18f, .18f, .2f, .22f, .25f, .28f },
@@ -113,9 +124,9 @@ const ChoiceDef kChoices[C_COUNT] = {
       L"log-polar", L"tangent", L"cross", L"pdj" }, GR_SPACE, ALL_BUT_0 },
   { L"lens", 12, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, { 0, 0, .05f, .05f, .1f, .1f, .15f, .15f, .2f, .25f, .25f, .3f },
     { L"none", L"power", L"inversion", L"Möbius", L"Droste", L"tunnel", L"hyperbolic", L"twist", L"barrel", L"complex sine",
-      L"Joukowski", L"unwrap" }, GR_SPACE, ALL_BUT_0 },
+      L"Joukowski", L"unwrap" }, GR_SPACE, ALL_BUT_0, true },
   { L"tiling", 6, { 0, 1, 2, 3, 4, 5 }, { 0, .30f, .30f, .35f, .40f, .45f }, { L"none", L"p4m", L"p6m", L"p3m1", L"bricks", L"pinwheel" },
-    GR_SYMMETRY, ALL_BUT_0 },
+    GR_SYMMETRY, ALL_BUT_0, true },
   { L"attractor", 4, { 0, 1, 2, 3 }, { 0, .05f, .1f, .15f }, { L"Clifford", L"de Jong", L"Svensson", L"dream" }, GR_SPACE, ALL_BUT_0 },
 };
 
@@ -152,10 +163,15 @@ float Evolver::optionValue(int c, int opt) { return kChoices[c].val[opt]; }
 int Evolver::optionCount(int c) { return kChoices[c].n; }
 const wchar_t* Evolver::optionLabel(int c, int opt) { return kChoices[c].label[opt]; }
 
-float Evolver::gateOf(int i) const { return kGenes[i].math ? mathGate + kGenes[i].gate : kGenes[i].gate; }
+// The species' math threshold: the "Math threshold" option plus this species' own offset.
+float Evolver::spMath() const { return std::clamp(mathGate + mathJit, 0.f, 0.9f); }
+float Evolver::gateOf(int i) const {
+  float r = relGate[i];
+  return r < 0 ? 0.f : r + (kGenes[i].math ? spMath() : 0.f);
+}
 float Evolver::optGate(int c, int o) const {
-  const ChoiceDef& d = kChoices[c];
-  return (d.mathMask >> o & 1u) ? mathGate + d.gate[o] : d.gate[o];
+  float r = relOpt[c][o];
+  return r < 0 ? 0.f : r + ((kChoices[c].mathMask >> o & 1u) ? spMath() : 0.f);
 }
 
 void Evolver::range(int i, float& lo, float& hi) const {
@@ -172,7 +188,44 @@ void Evolver::pickChoice(int c, bool mustChange) {
   int opts[MAX_OPT], n = 0;
   for (int o = 0; o < d.n; o++)
     if (optGate(c, o) <= complexity && !(mustChange && o == choice[c])) opts[n++] = o;
-  if (n) choice[c] = opts[pick(n)];
+  if (!n) return;
+  // "Off" keeps a fair share, or every look would end up kaleidoscoped, mirrored and tiled.
+  int o = d.noneFirst && opts[0] == 0 && n > 1 ? (uni() < 0.35f ? 0 : opts[1 + pick(n - 1)]) : opts[pick(n)];
+  if (o != choice[c]) fadeMul[c] = uni(0.35f, 2.f);   // some switches snap, some melt
+  choice[c] = o;
+}
+
+// Each species gets its own thresholds: a feature comes in from the start (15%), never
+// appears in this species (15%), or comes in at a random complexity. Same for each option.
+void Evolver::newGates() {
+  mathJit = uni(-0.3f, 0.3f);
+  for (float& r : relGate) r = -1.f;
+  for (auto& f : kFeatures) {
+    float r = uni();
+    float gate = r < 0.15f ? 0.f : r < 0.30f ? 9.f : kGenes[f[0]].math ? uni(0.f, 0.3f) : uni(0.f, 0.75f);
+    for (int j : f) if (j >= 0) relGate[j] = gate;
+  }
+  for (int c = 0; c < C_COUNT; c++) {
+    const ChoiceDef& d = kChoices[c];
+    bool gated = d.mathMask != 0;
+    for (int o = 0; o < d.n; o++) gated |= d.gate[o] > 0;
+    for (int o = 0; o < MAX_OPT; o++)
+      relOpt[c][o] = !gated || o >= d.n ? -1.f : (d.mathMask >> o & 1u) ? uni(0.f, 0.3f) : uni(0.f, 0.8f);
+    relOpt[c][d.noneFirst ? 0 : pick(d.n)] = -1.f;   // at least one option is always available
+  }
+}
+
+// How fast things settle and how long scenes last, so changes don't all share one rhythm.
+void Evolver::newPacing() {
+  for (float& v : easeMul) v = uni(0.5f, 1.6f);
+  for (float& v : fadeMul) v = uni(0.5f, 1.6f);
+  sceneFrac = uni(0.35f, 1.f);
+  cxTimer = 0;
+}
+
+float Evolver::startComplexity() {
+  float lo = set.x[XF_START_CX];
+  return uni(lo, std::max(lo, 0.85f * set.complexityCap));
 }
 
 void Evolver::randomize() {
@@ -205,21 +258,23 @@ void Evolver::init(unsigned seed, const std::wstring& path, const Settings& s) {
   mathGate = s.x[XF_M_GATE];
   favPath = path;
   loadFavs();
-  complexity = prevComplexity = s.x[XF_START_CX];
+  newGates();
+  newPacing();
+  complexity = prevComplexity = startComplexity();
   for (int c = 0; c < C_COUNT; c++) choice[c] = 0;
   randomize();
   newLoadings();
   for (int i = 0; i < G_COUNT; i++) g[i] = base[i] = tgt[i];
   for (int c = 0; c < C_COUNT; c++)
     for (int o = 0; o < MAX_OPT; o++) w[c][o] = o == choice[c] ? 1.f : 0.f;
-  lastEvent = L"Started simple; layers unlock as the music keeps going.";
+  lastEvent = L"Started from a fresh random look";
 }
 
 void Evolver::mutateScene(float strength, const std::wstring& why, unsigned groups) {
   scene++;
   sceneTime = 0;
   // Candidates: genes and choices of the requested groups that can move right now. If none can
-  // (say, math space before it unlocks), the whole genome is fair game.
+  // (say, math space below its threshold), the whole genome is fair game.
   std::vector<int> genes, chs;
   for (int pass = 0; pass < 2 && (genes.empty() || chs.empty()); pass++) {
     unsigned gm = pass ? GM_ALL : groups;
@@ -245,13 +300,16 @@ void Evolver::mutateScene(float strength, const std::wstring& why, unsigned grou
     if (kGenes[gi].integer) { tgt[gi] = std::round(uni(lo, hi)); continue; }
     float mix = 0.5f + 0.5f * strength;
     tgt[gi] += (uni(lo, hi) - tgt[gi]) * mix;
+    easeMul[gi] = uni(0.35f, 2.f);
   }
   // Always change at least one discrete gene so a scene change is visible.
   std::wstring changed;
   int nc = 1, extra = int(std::lround(set.x[XF_CHOICES_PER_SCENE]));
   for (int j = 1; j <= extra; j++) nc += uni() < strength / float(j) ? 1 : 0;
   for (int i = 0; i < nc && !chs.empty(); i++) {
-    int c = chs[pick(int(chs.size()))];
+    int j = pick(int(chs.size())), c = chs[j];
+    chs[j] = chs.back();   // each switch changes at most once per scene
+    chs.pop_back();
     int before = choice[c];
     pickChoice(c, true);
     if (choice[c] != before) {
@@ -261,7 +319,8 @@ void Evolver::mutateScene(float strength, const std::wstring& why, unsigned grou
       changed += kChoices[c].label[choice[c]];
     }
   }
-  boost = std::max(boost, 0.6f);
+  boost = std::max(boost, uni(0.15f, 1.2f));
+  sceneFrac = uni(0.35f, 1.f);
   lastEvent = why + (changed.empty() ? L"" : L": " + changed);
 }
 
@@ -270,15 +329,19 @@ void Evolver::newSpecies(const wchar_t* why) {
   scene = 1;
   sceneTime = 0;
   newLoadings();
+  newGates();
+  newPacing();
   if (!favs.empty() && uni() < set.x[XF_BREED]) {
     const auto& A = favs[pick(int(favs.size()))];
     const auto& B = favs[pick(int(favs.size()))];
     complexity = std::max(set.x[XF_START_CX], 0.5f * (A[0] + B[0]) * 0.8f);
     for (int i = 0; i < G_COUNT; i++) {
-      float lo, hi;
-      range(i, lo, hi);
       float v = (uni() < 0.5f ? A : B)[1 + i];
       if (std::isnan(v)) v = (uni() < 0.5f ? B : A)[1 + i];
+      // A layer the parent had stays in this species whatever its drawn threshold.
+      if (!std::isnan(v) && relGate[i] >= 0 && std::fabs(v) > 0.05f * (kGenes[i].hi - kGenes[i].lo)) relGate[i] = -1.f;
+      float lo, hi;
+      range(i, lo, hi);
       if (std::isnan(v)) v = uni(lo, hi);   // a look kept before this gene existed
       else if (!kGenes[i].integer) v += gauss() * set.x[XF_BREED_JITTER] * (hi - lo);
       tgt[i] = v;
@@ -287,12 +350,13 @@ void Evolver::newSpecies(const wchar_t* why) {
     for (int c = 0; c < C_COUNT; c++) {
       int o = int((uni() < 0.5f ? A : B)[1 + G_COUNT + c]);
       choice[c] = std::clamp(o, 0, kChoices[c].n - 1);
+      relOpt[c][choice[c]] = -1.f;
     }
     lastEvent = std::wstring(why) + L": bred from two of your kept looks";
   } else {
-    complexity = set.x[XF_START_CX];
+    complexity = startComplexity();
     randomize();
-    lastEvent = std::wstring(why) + L": a fresh, simple look";
+    lastEvent = std::wstring(why) + L": a fresh random look";
   }
   prevComplexity = complexity;
   boost = 2.0f;
@@ -336,25 +400,28 @@ void Evolver::update(float dt, const AudioFrame& a, const Settings& s) {
 
   if (!s.freeze) {
     sceneTime += dt;
-    // Complexity builds while music plays and drains during silence.
+    // Complexity wanders while music plays: it heads for a target that is redrawn at random
+    // moments, so the look gets busier or calmer in no fixed order. It drains during silence.
     if (a.silent) {
       silentTime += dt;
       if (silentTime > 2.f) complexity = std::max(0.f, complexity - dt * X[XF_DRAIN]);
     } else {
       if (silentTime > X[XF_NEWSONG]) newSpecies(L"New song");
       silentTime = 0;
-      complexity = std::min(s.complexityCap, complexity + dt / std::max(6.f, s.buildMin * 60.f));
+      float swing = std::max(6.f, s.buildMin * 60.f);
+      cxTimer -= dt;
+      if (cxTimer <= 0) { cxTarget = uni(0.1f, 1.f); cxTimer = swing * uni(0.15f, 0.6f); }
+      float step = dt / swing, want = cxTarget * s.complexityCap;
+      complexity += std::clamp(want - complexity, -step, step);
     }
     if (complexity > s.complexityCap) complexity = std::max(s.complexityCap, complexity - dt * 0.1f);
 
-    // Layers unlock as complexity crosses their gate.
+    // A layer whose threshold complexity just rose past fades in from a calm setting.
     for (int i = 0; i < G_COUNT; i++) {
       const GeneDef& d = kGenes[i];
       float gate = gateOf(i);
-      if (gate > 0 && prevComplexity < gate && complexity >= gate) {
+      if (gate > 0 && prevComplexity < gate && complexity >= gate)
         tgt[i] = d.integer ? std::round(uni(d.calmLo, d.calmHi)) : uni(d.calmLo, d.calmHi);
-        lastEvent = std::wstring(L"Unlocked ") + d.name;
-      }
     }
     prevComplexity = complexity;
 
@@ -400,21 +467,27 @@ void Evolver::update(float dt, const AudioFrame& a, const Settings& s) {
       sinceEvent = 0;
       if (tg == TGT_SPECIES) newSpecies(name);
       else
-        mutateScene(bestAmt * (0.4f + 0.6f * s.mutation), std::wstring(name) + L" (" + kTargetShort[tg] + L")",
-                    tg == TGT_ALL ? GM_ALL : 1u << (tg - 1));
-    } else if (sceneTime > s.sceneLen) {
-      mutateScene(0.25f + 0.5f * s.mutation, L"Scene timer");
+        mutateScene(std::min(1.f, bestAmt * (0.4f + 0.6f * s.mutation) * uni(0.6f, 1.4f)),
+                    std::wstring(name) + L" (" + kTargetShort[tg] + L")", tg == TGT_ALL ? GM_ALL : 1u << (tg - 1));
+    } else if (sceneTime > s.sceneLen * sceneFrac) {
+      // The timer picks a random strength and a random handful of groups (sometimes all).
+      unsigned gm = GM_ALL;
+      if (uni() < 0.75f) {
+        gm = 0;
+        for (int j = 1 + pick(3); j > 0; j--) gm |= 1u << pick(GR_COUNT);
+      }
+      mutateScene(std::clamp((0.25f + 0.5f * s.mutation) * uni(0.4f, 1.6f), 0.05f, 1.f), L"Scene timer", gm);
     }
 
-    // Options that are locked again (complexity fell) get replaced.
+    // Options out of reach again (complexity fell) get replaced.
     for (int c = 0; c < C_COUNT; c++)
       if (optGate(c, choice[c]) > complexity) pickChoice(c, false);
   }
 
   // Ease toward the targets (faster right after a new species), then add the shared drift.
-  float k = 1.f - std::exp(-dt * (0.6f + boost) * X[XF_EASE]);
   const float ln[3] = { lor[0] / 18.f, lor[1] / 24.f, (lor[2] - 24.f) / 18.f };
   for (int i = 0; i < G_COUNT; i++) {
+    float k = 1.f - std::exp(-dt * (0.6f + boost) * X[XF_EASE] * easeMul[i]);
     base[i] += (tgt[i] - base[i]) * k;
     float lo, hi;
     range(i, lo, hi);
@@ -424,9 +497,10 @@ void Evolver::update(float dt, const AudioFrame& a, const Settings& s) {
     for (int j = 0; j < 3; j++) off += loadZ[i][j] * ln[j] * 0.3f * X[XF_LORENZ];
     g[i] = std::clamp(base[i] + off * (hi - lo), lo, hi);
   }
-  float kc = 1.f - std::exp(-dt * (0.8f + boost) * X[XF_FADE]);
-  for (int c = 0; c < C_COUNT; c++)
+  for (int c = 0; c < C_COUNT; c++) {
+    float kc = 1.f - std::exp(-dt * (0.8f + boost) * X[XF_FADE] * fadeMul[c]);
     for (int o = 0; o < MAX_OPT; o++) w[c][o] += ((o == choice[c] ? 1.f : 0.f) - w[c][o]) * kc;
+  }
   boost = std::max(0.f, boost - dt * 1.5f);
 }
 
@@ -515,6 +589,15 @@ void Evolver::saveFavs() const {
 }
 
 /* ------------------------------ shader parameters ------------------------------ */
+void Visuals::seed(unsigned s) {
+  std::mt19937 r(s);
+  auto u = [&](float hi) { return std::uniform_real_distribution<float>(0.f, hi)(r); };
+  const float TAU = 6.2831853f;
+  time = u(500.f);
+  warpPhase = u(100.f); palPhase = u(10.f); flowPhase = u(100.f); viewPhase = u(100.f); lissPhase = u(100.f); orbPhase = u(100.f);
+  waveAngle = u(TAU); kSpin = u(TAU); echoAngle = u(TAU); attrAngle = u(TAU);
+}
+
 void Visuals::build(float* P, const Evolver& e, const AudioFrame& a, const Settings& s, float dt, int w, int h,
                     float gripX, float gripY, float gripR, float gripOp, float meanLum, DrawInfo& out) {
   std::fill(P, P + P_FLOATS, 0.f);

@@ -23,7 +23,7 @@ struct Settings {
   float evoSpeed = 1.0f;        // drift speed and small-mutation rate
   float mutation = 0.5f;        // how much a scene change alters
   float sceneLen = 30.0f;       // longest a scene lasts, seconds
-  float buildMin = 3.0f;        // minutes of music to reach full complexity
+  float buildMin = 3.0f;        // minutes for complexity to swing across its whole range
   float complexityCap = 1.0f;
   bool freeze = false;
   float trails = 0.0f;          // -1..1, added to the feedback decay

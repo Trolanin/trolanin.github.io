@@ -6,11 +6,12 @@ A trippy music visualizer for Windows, in the spirit of the old Winamp-era feedb
 visualizers. It listens to whatever Windows is playing and draws it with GPU feedback
 effects: zooming, swirling trails, waveforms, kaleidoscopes and colour drift.
 
-The look is never fixed. Each song starts simple and builds up. Over the first few minutes
-of music, new layers unlock one at a time (spectrum ring, swirl, tunnel rings, sparkles,
-orbs, chromatic split, echo), and then a layer of abstract maths opens up: fractal-flame
+The look is never fixed. Every launch and every song starts from a fresh random look, at a
+random level of complexity. Each song gets its own random mix of layers (spectrum ring,
+swirl, tunnel rings, sparkles, orbs, chromatic split, echo) and abstract maths (fractal-flame
 warps, complex-plane lenses, wallpaper tilings, curl-noise flow, superformula and Lissajous
-shapes, and strange attractors. The whole look keeps drifting. What the music does (a bass
+shapes, strange attractors). The picture gets busier and calmer in no fixed order, so layers
+fade in and out differently every time. The whole look keeps drifting. What the music does (a bass
 drop, a build-up, a breakdown, the hi-hats coming in, a tempo change) decides what mutates.
 When a song ends and a new one starts, a new "species" is born.
 
@@ -68,8 +69,8 @@ Windows SmartScreen may warn you because the file isn't signed. Click "More info
 | Evolution speed | How fast the look drifts, and how often it makes small changes |
 | Mutation strength | How much a scene change alters |
 | Max scene length | The longest a scene lasts before it mutates on its own |
-| Build-up time | Minutes of music to go from simple to full complexity |
-| Max complexity | Caps how many layers can unlock |
+| Complexity swing | Minutes for complexity to travel from calm to busy (it wanders both ways) |
+| Max complexity | Caps how busy the picture can get |
 | Freeze evolution | Holds the current look (it still reacts to the music) |
 | Keep this look | Saves the look as a favourite. New species are sometimes bred from favourites. |
 | Trails | Shorter or longer feedback trails |
@@ -89,9 +90,9 @@ Tick **Excessive options** at the bottom of the settings to open seven more grou
 | Audio analysis | Beat sensitivity and minimum gap, how big a change counts as a new section, event sensitivity, the silence level, how long a gap means a new song, spectrum fall-off and range |
 | Mutate on audio events | For each musical event, how strongly it mutates and what it changes (see below). Also "every phrase" (a mutation every 8–64 beats), and a cooldown between event mutations. A line shows what has been heard so far. |
 | Audio steers the drift | Each gene group (motion, colour, shape, layers, math, symmetry) can follow one feature of the music: loudness, bass, mids, treble, tone brightness, beat density or novelty. The louder that feature, the faster that group drifts. |
-| Evolution engine | Drift damping, beat nudges, how many genes and switches change per scene, cross-fade and ease speeds, breeding from favourites, silence drain, where a new species starts, and the latent mixing and Lorenz chaos amounts |
+| Evolution engine | Drift damping, beat nudges, how many genes and switches change per scene, cross-fade and ease speeds, breeding from favourites, silence drain, the lowest complexity a new species can start at, and the latent mixing and Lorenz chaos amounts |
 | Layer strengths | A multiplier for every layer (waveform, spectrum ring, tunnel, sparkles, orbs, attractor, echo, chromatic split, beat flash, kaleidoscope, mirror) |
-| Math space | When the maths unlocks, how strongly each math family can apply, and the attractor's points, iterations and dot size |
+| Math space | The math threshold (the average complexity where the maths comes in; each species varies it), how strongly each math family can apply, and the attractor's points, iterations and dot size |
 | Fine look | Saturation, exposure target and auto exposure, vignette, colour cycling and drift speeds, zoom and spin bias, motion speed, line thickness, grip dot size, frame-rate cap |
 
 ### What the music can mutate
@@ -149,14 +150,17 @@ discrete choices, up from about 11,000, before counting the roughly 70 continuou
   per-gene random walk would almost never find. The loadings are re-rolled for every species.
 - **Lorenz chaos.** A Lorenz attractor runs alongside, and its three coordinates nudge genes
   too. It never repeats and never settles, so the drift keeps finding new directions.
-- **Complexity.** Complexity rises while music plays and unlocks layers at set thresholds. It
-  drains during silence.
+- **Complexity.** While music plays, complexity heads for a target that is redrawn at random
+  moments, so it climbs and falls. Each species draws its own threshold for every layer and
+  every option: some are there from the start, some come in at a random point, and some never
+  appear in that species. The order is different every time. Complexity drains during silence.
 - **Scene mutations.** A mutation happens when the analyser hears one of the events above,
-  or when the scene timer runs out. Each event changes only the genes and choices of its
+  or when the scene timer runs out (after a random part of "Max scene length", on a random
+  handful of groups, at a random strength). Each event changes only the genes and choices of its
   target group, so a bass drop can shake up the motion while the colours stay put. Beats add
   small nudges.
-- **New species.** After more than 4 seconds of silence (a new song), a new species is born and
-  complexity resets. Half the time it is bred from your kept favourites, by crossover plus a little mutation.
+- **New species.** After more than 4 seconds of silence (a new song), a new species is born at
+  a random complexity. Half the time it is bred from your kept favourites, by crossover plus a little mutation.
 
 ## Building
 

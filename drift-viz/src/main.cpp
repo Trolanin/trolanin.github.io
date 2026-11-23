@@ -40,7 +40,7 @@ const SliderDef kSliders[] = {
   { L"Evolution speed", 0.f, 3.f, &Settings::evoSpeed, FMT_PCT },
   { L"Mutation strength", 0.f, 1.f, &Settings::mutation, FMT_PCT },
   { L"Max scene length", 8.f, 120.f, &Settings::sceneLen, FMT_SEC },
-  { L"Build-up time", 0.5f, 10.f, &Settings::buildMin, FMT_MIN },
+  { L"Complexity swing", 0.5f, 10.f, &Settings::buildMin, FMT_MIN },
   { L"Max complexity", 0.f, 1.f, &Settings::complexityCap, FMT_PCT },
   { L"Trails", -1.f, 1.f, &Settings::trails, FMT_SIGNED },
   { L"Brightness", 0.3f, 2.f, &Settings::brightness, FMT_PCT },

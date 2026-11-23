@@ -11,6 +11,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <intrin.h>
+#include <random>
 #include "VS_Full.h"
 #include "VS_Wave.h"
 #include "PS_Warp.h"
@@ -422,15 +424,21 @@ void renderThread(Shared* sh) {
   Audio audio;
   audio.start();
   Evolver evo;
+  Visuals vis;
   {
     Settings s0;
     {
       std::lock_guard<std::mutex> l(sh->mu);
       s0 = sh->s;
     }
-    evo.init(unsigned(GetTickCount64() ^ GetCurrentProcessId()), sh->favPath, s0);
+    // A different seed every launch: OS entropy mixed with the clock and process id.
+    std::random_device rd;
+    std::seed_seq ss{ rd(), rd(), unsigned(GetTickCount64()), unsigned(GetCurrentProcessId()), unsigned(__rdtsc()) };
+    unsigned seeds[2];
+    ss.generate(seeds, seeds + 2);
+    evo.init(seeds[0], sh->favPath, s0);
+    vis.seed(seeds[1]);
   }
-  Visuals vis;
   AudioFrame af;
   HWND cur = nullptr;
   float P[P_FLOATS];

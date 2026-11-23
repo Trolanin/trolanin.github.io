@@ -71,7 +71,7 @@ const OptDef kOpts[] = {
   SL(XF_BREED, 3, L"Breed chance", "x.breed", 0.f, 1.f, 0.5f, FMT_PCT),
   SL(XF_BREED_JITTER, 3, L"Breed mutation", "x.breedJitter", 0.f, 0.4f, 0.05f, FMT_PCT),
   SL(XF_DRAIN, 3, L"Silence drain", "x.drain", 0.f, 1.f, 0.2f, FMT_PCT),
-  SL(XF_START_CX, 3, L"Species start at", "x.startCx", 0.f, 0.8f, 0.05f, FMT_PCT),
+  SL(XF_START_CX, 3, L"Lowest start", "x.startLow", 0.f, 0.8f, 0.05f, FMT_PCT),
   SL(XF_LATENT, 3, L"Latent mixing", "x.latent", 0.f, 1.f, 0.4f, FMT_PCT),
   SL(XF_LORENZ, 3, L"Lorenz chaos", "x.lorenz", 0.f, 1.f, 0.3f, FMT_PCT),
 
@@ -87,7 +87,7 @@ const OptDef kOpts[] = {
   SL(XF_L_KALEIDO, 4, L"Kaleidoscope", "x.lKaleido", 0.f, 1.f, 1.f, FMT_PCT),
   SL(XF_L_MIRROR, 4, L"Mirror folds", "x.lMirror", 0.f, 1.f, 1.f, FMT_PCT),
 
-  SL(XF_M_GATE, 5, L"Math unlocks at", "x.mGate", 0.f, 0.9f, 0.35f, FMT_PCT),
+  SL(XF_M_GATE, 5, L"Math threshold", "x.mGate", 0.f, 0.9f, 0.35f, FMT_PCT),
   SL(XF_M_FLAME, 5, L"Flame warp", "x.mFlame", 0.f, 2.f, 1.f, FMT_PCT),
   SL(XF_M_VIEW, 5, L"Complex lens", "x.mView", 0.f, 1.5f, 1.f, FMT_PCT),
   SL(XF_M_TILE, 5, L"Wallpaper tiling", "x.mTile", 0.f, 1.5f, 1.f, FMT_PCT),

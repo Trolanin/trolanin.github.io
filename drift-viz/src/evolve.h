@@ -36,10 +36,13 @@ constexpr int MAX_OPT = 24;
 enum Group { GR_MOTION, GR_COLOUR, GR_SHAPE, GR_LAYERS, GR_SPACE, GR_SYMMETRY, GR_COUNT };
 constexpr unsigned GM_ALL = (1u << GR_COUNT) - 1;
 
-// The progressive part: a genome that drifts continuously, mutates on scene changes
-// (the music changing character, audio events, or a timer), unlocks extra layers as "complexity"
-// builds up over minutes of music, and starts a fresh, simple "species" after a silence
-// (a new song), sometimes bred from the looks you kept.
+// The evolving part: a genome that drifts continuously, mutates on scene changes (the music
+// changing character, audio events, or a randomly timed scene timer), and starts a fresh
+// "species" after a silence (a new song), sometimes bred from the looks you kept.
+//
+// "Complexity" wanders up and down toward targets redrawn at random moments. Each species
+// draws its own threshold for every layer and every option, plus its own starting complexity,
+// so which layers show up, and in what order, is different every time (some never appear).
 //
 // On top of each gene's own random walk, two shared signals move many genes at once, so the
 // genome travels along directions no single gene has:
@@ -73,6 +76,11 @@ private:
   float loadL[G_COUNT][LATENT] = {}, loadZ[G_COUNT][3] = {};
   float z[LATENT] = {}, lor[3] = { 1.f, 1.f, 20.f };
   float steerMul[GR_COUNT] = { 1, 1, 1, 1, 1, 1 }, feat[GR_COUNT] = {};
+  // Per-species thresholds. < 0 = always there; otherwise added to the species' math threshold
+  // for math genes and options. easeMul / fadeMul vary how fast each change settles.
+  float relGate[G_COUNT] = {}, relOpt[C_COUNT][MAX_OPT] = {}, mathJit = 0;
+  float easeMul[G_COUNT] = {}, fadeMul[C_COUNT] = {};
+  float cxTarget = 0.5f, cxTimer = 0, sceneFrac = 1;
   std::mt19937 rng;
   Settings set;   // last settings seen (for ranges and breeding)
   float sceneTime = 0, silentTime = 0, boost = 0, prevComplexity = 0, sinceEvent = 100, mathGate = 0.35f;
@@ -85,12 +93,16 @@ private:
   float uni(float a = 0.f, float b = 1.f) { return a + (b - a) * std::uniform_real_distribution<float>(0.f, 1.f)(rng); }
   float gauss() { return std::normal_distribution<float>(0.f, 1.f)(rng); }
   int pick(int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); }
+  float spMath() const;
   float gateOf(int gene) const;
   float optGate(int c, int opt) const;
   void range(int gene, float& lo, float& hi) const;
   void pickChoice(int c, bool mustChange);
   void randomize();
   void newLoadings();
+  void newGates();
+  void newPacing();
+  float startComplexity();
   void loadFavs();
   void saveFavs() const;
 };
@@ -104,6 +116,7 @@ public:
   void build(float* P, const Evolver& e, const AudioFrame& a, const Settings& s, float dt, int w, int h,
              float gripX, float gripY, float gripR, float gripOp, float meanLum, DrawInfo& out);
   float fill = 0;   // how far over the brightness target the picture is (smoothed), for the log
+  void seed(unsigned s);   // random starting phases, so the first seconds differ every launch
 private:
   float time = 0, warpPhase = 0, palPhase = 0, waveAngle = 0, kSpin = 0, orbPhase = 0, echoAngle = 0;
   float flowPhase = 0, viewPhase = 0, lissPhase = 0, attrAngle = 0;
