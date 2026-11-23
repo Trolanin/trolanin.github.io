@@ -97,10 +97,10 @@ struct Loopback {
 
 /* ------------------------------ demo beat ------------------------------ */
 // A small 124 BPM loop whose arrangement changes every 8 bars, so the visualizer has
-// beats and section changes to react to without anything playing.
+// beats, section changes, risers, drops and breakdowns to react to without anything playing.
 struct Demo {
   double t = 0, kickPh = 0, bassPh = 0, leadPh = 0, padPh[3] = {};
-  float bassLp = 0, hatPrev = 0;
+  float bassLp = 0, hatPrev = 0, riserLp = 0;
   uint32_t rnd = 12345;
 
   float noise() { rnd = rnd * 1664525u + 1013904223u; return float(rnd >> 8) / float(1 << 24) * 2.f - 1.f; }
@@ -117,12 +117,19 @@ struct Demo {
       double ts = tt - si * step, tq = tt - (si - si % 4) * step;
       int s16 = int(si % 16);
       long bar = si / 16;
-      int section = int(bar / 8) % 4, chord = int(bar / 2) % 4;
+      int section = int(bar / 8) % 4, chord = int(bar / 2) % 4, barIn = int(bar % 8);
       float x = 0;
-      if (section == 1 || section == 2) {          // kick on every quarter
+      if (section == 1 || section == 2) {          // kick on every quarter, a big one to open the section
         double f = 48 + 110 * std::exp(-tq * 35);
         kickPh += f / rate; wrap(kickPh);
-        x += float(std::sin(2 * PI * kickPh) * std::exp(-tq * 7) * 0.8);
+        float big = (barIn == 0 && s16 < 4) ? 2.2f : 1.f;
+        x += float(std::sin(2 * PI * kickPh) * std::exp(-tq * 7) * 0.8) * big;
+      }
+      if ((section == 0 || section == 1) && barIn >= 6) {   // noise riser into the next section
+        float prog = float(((barIn - 6) * 16 + s16 + ts / step) / 32.0);
+        float nz = noise();
+        riserLp += (nz - riserLp) * (0.05f + 0.85f * prog);
+        x += (nz - riserLp) * 0.45f * prog * prog;
       }
       if (section == 2) {                           // filtered saw bass
         bassPh += hz(bassNotes[(si / 2) % 8]) / rate; wrap(bassPh);
@@ -187,6 +194,19 @@ struct Analyzer {
   int beats = 0, sections = 0;
   float fShort[8] = {}, fLong[8] = {};
   bool fInit = false;
+  float bandLin[SPEC_N] = {};
+  // event detectors: smoothed dB levels (S = short, M = medium, L = long)
+  float bassS = -90, bassL = -90, lvlS = -90, lvlM = -90, lvlL = -90, trebM = -90;
+  float cenS = 0, cenL = 0, midS = 0, midL = 0, lullMin = 0;
+  bool evInit = false, inLull = false, inBreak = false;
+  double lullStart = 0, lastBreak = -100, lastBuild = -100, lastTone = -100, lastHats = -100, lastVocal = -100;
+  double lastTempo = -100, lastHit = -100, lastHist = 0, lastOnset = 0, tempoOff = -1, evStart = 0;
+  float tempoCand = 0;
+  float lvlHist[20] = {}, trebHist[20] = {}; int histAt = 0, histCount = 0;
+  float hiHist[3] = { -90, -90, -90 }, rateS = 0, rateL = 0, beatRate = 0, beatAvg = 0;
+  bool beatAvgInit = false;
+  float ibi[9] = {}; int ibiN = 0, ibiAt = 0; float bpmLocked = 0;
+  int drops = 0, builds = 0, breaks = 0, toneShifts = 0, hatRushes = 0, vocals = 0, tempoChanges = 0, hits = 0;
 
   Analyzer() { for (int i = 0; i < FFT_N; i++) hann[i] = 0.5f - 0.5f * std::cos(2 * PI * i / (FFT_N - 1)); }
   void push(const float* s, size_t n) { for (size_t i = 0; i < n; i++) { ring[pos] = s[i]; pos = (pos + 1) % RING; } }
@@ -205,27 +225,147 @@ struct Analyzer {
     return p;
   }
 
-  void analyze(int rate, int hop, double t, AudioFrame& f) {
+  static float dbOf(float p) { return std::max(-90.f, 10.f * std::log10(p + 1e-12f)); }
+  static void ema(float& v, float x, float a) { v += (x - v) * a; }
+
+  // Musical events, from smoothed levels compared over different time scales. Thresholds are in dB
+  // and scale with 1 / event sensitivity. Runs every 10 ms.
+  void detectEvents(double t, AudioFrame& f, const AudioParams& ap, const float* p3, float lvlDb, float cen, bool beat,
+                    double prevBeat, float binHz) {
+    const float es = std::max(ap.eventSens, 0.05f);
+    float bassDb = dbOf(p3[0]), trebDb = dbOf(p3[2]), totDb = dbOf(p3[0] + p3[1] + p3[2]);
+    float midShare = dbOf(p3[1]) - totDb, lv = std::clamp(lvlDb, -90.f, 0.f);
+    float hiDb = dbOf(bandPower(5000, 16000, binHz));
+    if (!evInit || f.silent) {
+      bassS = bassL = bassDb; lvlS = lvlM = lvlL = lv; trebM = trebDb; cenS = cenL = cen; midS = midL = midShare;
+      inLull = inBreak = false; histCount = 0; ibiN = 0; bpmLocked = 0; tempoOff = -1; beatAvgInit = false;
+      rateS = rateL = beatRate = 0;
+      evInit = true;
+      evStart = t;
+    }
+    ema(bassS, bassDb, 0.04f);    // ~0.25 s
+    ema(bassL, bassDb, 0.001f);   // ~10 s
+    ema(lvlS, lv, 0.02f);         // ~0.5 s
+    ema(lvlM, lv, 0.005f);        // ~2 s
+    ema(lvlL, lv, 0.001f);        // ~10 s
+    ema(trebM, trebDb, 0.005f);
+    ema(cenS, cen, 0.01f);
+    ema(cenL, cen, 0.0008f);
+    ema(midS, midShare, 0.007f);
+    ema(midL, midShare, 0.0008f);
+    ema(beatRate, beat ? 100.f : 0.f, 0.003f);
+    f.beatDensity = std::clamp(beatRate / 3.f, 0.f, 1.f);
+    f.bright = std::clamp((cenS - 0.3f) / 0.35f, 0.f, 1.f);
+
+    // Onsets in the top band (hi-hats, shakers): a short and a long rate, in onsets per second.
+    bool onset = hiDb - hiHist[1] > 6.f && t - lastOnset > 0.06;
+    hiHist[1] = hiHist[0]; hiHist[0] = hiDb;
+    if (onset) lastOnset = t;
+    ema(rateS, onset ? 100.f : 0.f, 0.01f);     // ~1 s
+    ema(rateL, onset ? 100.f : 0.f, 0.0008f);   // ~12 s
+    // Give the averages a few seconds to settle after start-up or silence before calling events.
+    if (t - evStart <= 5) rateL = rateS;
+    if (!f.silent && t - evStart > 5) {
+      // Drop: the bass falls well below its long average for a while, then comes back hard.
+      if (!inLull) {
+        if (bassS < bassL - 6.f / es) { inLull = true; lullStart = t; lullMin = bassS; }
+      } else {
+        lullMin = std::min(lullMin, bassS);
+        if (bassS > lullMin + 9.f / es && bassS > bassL - 3.f) {
+          if (t - lullStart > 1.5) drops++;
+          inLull = false;
+        } else if (t - lullStart > 60) inLull = false;
+      }
+      // Breakdown: the level falls well below its long average without going silent.
+      if (!inBreak && lvlS < lvlL - 7.f / es && t - lastBreak > 8) { breaks++; inBreak = true; lastBreak = t; }
+      if (inBreak && lvlS > lvlL - 2.f) inBreak = false;
+      // Build-up: over ~5 s the treble climbs steadily and the level rises with it.
+      if (t - lastHist >= 0.25) {
+        lastHist = t;
+        lvlHist[histAt] = lvlM; trebHist[histAt] = trebM;
+        histAt = (histAt + 1) % 20;
+        histCount++;
+      }
+      if (histCount >= 20) {
+        int o = histAt, m = (histAt + 10) % 20, n = (histAt + 19) % 20;
+        float dL = lvlHist[n] - lvlHist[o], dT = trebHist[n] - trebHist[o];
+        bool steady = trebHist[m] > trebHist[o] + 1.f && trebHist[n] > trebHist[m] + 1.f;
+        if (dL > 2.5f / es && dT > 6.f / es && steady && t - lastBuild > 10) { builds++; lastBuild = t; }
+      }
+      // Tone shift: the spectral centre of mass moves away from where it has been sitting.
+      if (std::fabs(cenS - cenL) > 0.07f / es && t - lastTone > 6) { toneShifts++; lastTone = t; cenL = cenS; }
+      // Hi-hats: onsets in the top band suddenly come much more often.
+      if (rateS > 2.f && rateS > rateL * (1.f + 0.6f / es) + 0.5f && t - lastHats > 8) { hatRushes++; lastHats = t; }
+      // Vocals / lead: the mid band suddenly takes a bigger share of the energy.
+      if (midS - midL > 3.f / es && t - lastVocal > 10) { vocals++; lastVocal = t; midL = midS; }
+      if (beat) {
+        // Big hit: a beat several dB above the recent beats.
+        float bd = bassDb;
+        if (beatAvgInit && bd > beatAvg + 5.f / es && t - lastHit > 2) { hits++; lastHit = t; }
+        beatAvg = beatAvgInit ? beatAvg + (bd - beatAvg) * 0.1f : bd;
+        beatAvgInit = true;
+        // Tempo: median beat interval, folded into one octave (75..150 BPM).
+        float iv = float(t - prevBeat);
+        if (iv > 0.2f && iv < 2.5f) {
+          while (iv < 0.4f) iv *= 2.f;
+          while (iv >= 0.8f) iv *= 0.5f;
+          ibi[ibiAt] = iv; ibiAt = (ibiAt + 1) % 9; ibiN = std::min(ibiN + 1, 9);
+          if (ibiN == 9) {
+            float s[9];
+            std::copy(ibi, ibi + 9, s);
+            std::nth_element(s, s + 4, s + 9);
+            float bpm = 60.f / s[4];
+            // Only trust a tempo when most recent beats agree with it (no fills, no off-beat stretches).
+            int agree = 0;
+            for (float v : ibi) agree += std::fabs(v - s[4]) < 0.04f * s[4];
+            if (agree < 7) {
+              // irregular: neither confirm nor reject a change
+            } else if (bpmLocked <= 0) {
+              bpmLocked = bpm;
+            } else if (std::fabs(bpm - bpmLocked) / bpmLocked > 0.05f / es) {
+              // A new tempo has to hold steady for 4 s before it counts.
+              if (tempoOff < 0 || std::fabs(bpm - tempoCand) / tempoCand > 0.03f) { tempoOff = t; tempoCand = bpm; }
+              if (t - tempoOff > 4 && t - lastTempo > 15) { tempoChanges++; lastTempo = t; bpmLocked = bpm; tempoOff = -1; }
+            } else {
+              tempoOff = -1;
+              bpmLocked += (bpm - bpmLocked) * 0.05f;
+            }
+          }
+        }
+      }
+    }
+    f.bpm = bpmLocked;
+    f.drops = drops; f.builds = builds; f.breaks = breaks; f.toneShifts = toneShifts;
+    f.hatRushes = hatRushes; f.vocals = vocals; f.tempoChanges = tempoChanges; f.hits = hits;
+  }
+
+  void analyze(int rate, int hop, double t, AudioFrame& f, const AudioParams& ap) {
     for (int i = 0; i < FFT_N; i++) buf[i] = at(FFT_N - 1 - i) * hann[i];
     fft(buf);
     const float norm = 1.f / (float(FFT_N) * FFT_N / 16.f), binHz = float(rate) / FFT_N;
     for (int k = 0; k <= FFT_N / 2; k++) pw[k] = std::norm(buf[k]) * norm;
     pw[FFT_N / 2 + 1] = 0;
 
-    // Spectrum bands, auto-gained: follow the loudest band, fall 3 dB/s, show the top 48 dB.
+    // Spectrum bands, auto-gained: follow the loudest band, fall 3 dB/s, show the top ~48 dB.
     float db[SPEC_N], maxDb = -200;
     const float ratio = 16000.f / 30.f;
     for (int b = 0; b < SPEC_N; b++) {
       float f0 = 30.f * std::pow(ratio, b / float(SPEC_N)), f1 = 30.f * std::pow(ratio, (b + 1) / float(SPEC_N));
-      db[b] = 10.f * std::log10(bandPower(f0, f1, binHz) + 1e-12f);
+      bandLin[b] = bandPower(f0, f1, binHz);
+      db[b] = 10.f * std::log10(bandLin[b] + 1e-12f);
       maxDb = std::max(maxDb, db[b]);
     }
     specPeak = std::max({ maxDb, specPeak - 0.03f, -45.f });
+    const float range = std::max(ap.specRange, 6.f), fall = 0.97f - 0.22f * std::clamp(ap.specFall, 0.f, 1.f);
+    float cenNum = 0, cenDen = 0;
     for (int b = 0; b < SPEC_N; b++) {
-      float v = std::clamp((db[b] - (specPeak - 48.f)) / 48.f, 0.f, 1.f);
-      spec[b] = std::max(v, spec[b] * 0.86f);
+      float v = std::clamp((db[b] - (specPeak - range)) / range, 0.f, 1.f);
+      spec[b] = std::max(v, spec[b] * fall);
       f.spec[b] = spec[b];
+      cenNum += v * b;
+      cenDen += v;
     }
+    float cen = cenDen > 0.5f ? cenNum / cenDen / SPEC_N : 0.f;
 
     // Bass / mid / treble relative to their own ~2 s average.
     float p3[3] = { bandPower(20, 250, binHz), bandPower(250, 2000, binHz), bandPower(2000, 16000, binHz) };
@@ -241,7 +381,13 @@ struct Analyzer {
     float avg = 0;
     for (float h : bassHist) avg += h;
     avg /= 100.f;
-    if (histN >= 100 && p3[0] > 1.5f * avg && p3[0] > 1e-6f && t - lastBeat > 0.18) { lastBeat = t; beats++; }
+    bool beat = false;
+    double prevBeat = lastBeat;
+    if (histN >= 100 && p3[0] > (1.f + 0.5f / std::max(ap.beatSens, 0.05f)) * avg && p3[0] > 1e-6f && t - lastBeat > ap.beatGap) {
+      lastBeat = t;
+      beats++;
+      beat = true;
+    }
     bassHist[hp] = p3[0]; hp = (hp + 1) % 100; histN++;
 
     // Loudness.
@@ -252,8 +398,10 @@ struct Analyzer {
     lvl = std::max(std::clamp((lvlDb - (lvlPeak - 40.f)) / 40.f, 0.f, 1.f), lvl * 0.9f);
     f.level = lvl;
     f.dbfs = lvlDb;
-    if (lvlDb > -80.f) quietSince = t;   // loopback silence is digital zero; quiet listening sits around -60
+    if (lvlDb > ap.silenceDb) quietSince = t;   // loopback silence is digital zero; quiet listening sits around -60
     f.silent = t - quietSince > 2.0;
+
+    detectEvents(t, f, ap, p3, lvlDb, cen, beat, prevBeat, binHz);
 
     // Section changes: the octave-band profile of the last ~0.5 s drifts away from the last ~8 s.
     float fe[8];
@@ -266,7 +414,7 @@ struct Analyzer {
       nov += std::fabs(fShort[o] - fLong[o]) / 8.f;
     }
     fInit = true;
-    if (!f.silent && nov > 5.f && t - lastSection > 6.0) {
+    if (!f.silent && nov > ap.sectionDb && t - lastSection > ap.sectionCool) {
       sections++; lastSection = t;
       for (int o = 0; o < 8; o++) fLong[o] = fShort[o];
     }
@@ -338,7 +486,12 @@ void Audio::run() {
         samples.assign(hop, 0.f);
         an.push(samples.data(), hop);
       }
-      an.analyze(rate, hop, t, f);
+      AudioParams ap;
+      {
+        std::lock_guard<std::mutex> l(mu);
+        ap = params;
+      }
+      an.analyze(rate, hop, t, f, ap);
       f.demo = useDemo;
       f.device = useDemo ? L"Demo beat (built in)" : haveDev ? lb.name : L"No playback device yet, retrying...";
       std::lock_guard<std::mutex> l(mu);

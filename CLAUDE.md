@@ -40,6 +40,14 @@ is committed so the site can serve it. Rebuild it and recommit it after every so
 - Build: `cmd /c "D:\Projects\public\drift-viz\build.bat"` from PowerShell. It needs VS 2022 Build Tools. It runs fxc to
   compile the shaders into `build\*.h`, then rc and cl. The `build\` folder is ignored by git.
 - `src/params.h` holds the shader parameter slots and is shared by HLSL and C++. Add new slots there, never as raw numbers.
+  The constant buffer is `float4 P[40]` (160 floats); growing it means changing `P_FLOATS` and the HLSL array together.
+- `src/options.cpp` is the single table behind the "Excessive options" UI, the settings file keys (`x.*`) and `--set key=value`.
+  Add a knob by adding an `XF_`/`XI_` index in `options.h` and a row in the table; main.cpp builds the controls from it.
+- Render passes per frame: warp/feedback, waveform lines, attractor points (additive, `VS_Attr`/`PS_Attr`, point count
+  from `DrawInfo`), composite. A new shader entry point also needs adding to the fxc list in `build.bat`.
+- Dark mode is hand-rolled: uxtheme ordinals 133/135/136 (Windows 10 1903+, guarded by build number), DWM attributes
+  20/35/36 for the title bar, `DarkMode_CFD`/`DarkMode_Explorer` themes for combos, edits and the scroll bar, and
+  NM_CUSTOMDRAW for buttons, check boxes and sliders (themed ones are always light). New controls must go through `mk()`.
 - Threads:
   - The UI thread runs `main.cpp`.
   - The render thread (`render.cpp`) fetches audio, runs the evolution, then renders and presents.
@@ -47,10 +55,14 @@ is committed so the site can serve it. Rebuild it and recommit it after every so
   - They share the `Shared` struct (`app.h`), guarded by its mutex plus atomics.
 - `evolve.cpp` is the progressive engine:
   - Genes do a damped random walk inside complexity-dependent ranges, and layers unlock at gates.
-  - Scenes mutate on section changes or when the scene timer runs out. A new species starts after 4 s of silence.
+  - Scenes mutate on audio events (counters in `AudioFrame`, detected in `audio.cpp`; each event targets a gene group)
+    or when the scene timer runs out. A new species starts after 4 s of silence.
+  - Latent factors (6 OU processes with sparse loadings) and a Lorenz system add correlated drift on top of the walk.
   - `Visuals::build` maps genes and audio to `P[]`. It includes the brightness control fed by `Gpu::meanLum`
     (an average from a 1x1 mip, read back a few frames late).
-- Test hooks: `--demo --docked/--undocked --size WxH --evo-scale K --shot f.png --shots N --after S --every S --log path`.
+- Test hooks: `--demo --docked/--undocked --size WxH --evo-scale K --shot f.png --shots N --after S --every S --log path`,
+  plus `--excessive --scroll-more --set key=value`. The demo beat has a drop, risers and a breakdown; the `--log` line
+  prints the event counters, so a 110 s `--demo --log` run checks the detectors.
   `--shot` runs headless-ish (no focus steal, no settings save). Check visuals with a contact sheet of the `--shots` output.
   On the owner's PC the display scale is 250%, so UI automation must call `SetThreadDpiAwarenessContext(-4)`.
 - Frame pacing: a waitable swap chain with max latency 1, plus a cap at the monitor refresh rate. Without them the flip model

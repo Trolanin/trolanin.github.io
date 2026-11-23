@@ -17,6 +17,8 @@
 #include "PS_Wave.h"
 #include "PS_Comp.h"
 #include "PS_Copy.h"
+#include "VS_Attr.h"
+#include "PS_Attr.h"
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "windowscodecs.lib")
@@ -57,6 +59,8 @@ public:
     dev->CreatePixelShader(g_PS_Wave, sizeof g_PS_Wave, nullptr, &psWave);
     dev->CreatePixelShader(g_PS_Comp, sizeof g_PS_Comp, nullptr, &psComp);
     dev->CreatePixelShader(g_PS_Copy, sizeof g_PS_Copy, nullptr, &psCopy);
+    dev->CreateVertexShader(g_VS_Attr, sizeof g_VS_Attr, nullptr, &vsAttr);
+    dev->CreatePixelShader(g_PS_Attr, sizeof g_PS_Attr, nullptr, &psAttr);
 
     D3D11_SAMPLER_DESC sd = {};
     sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -99,7 +103,7 @@ public:
     dev->CreateTexture2D(&td, nullptr, &audioTex);
     dev->CreateShaderResourceView(audioTex.Get(), nullptr, &audioSrv);
 
-    if (!vsFull || !vsWave || !psWarp || !psWave || !psComp || !psCopy || !cb || !audioSrv) { error = L"Could not create the GPU resources."; return false; }
+    if (!vsFull || !vsWave || !psWarp || !psWave || !psComp || !psCopy || !vsAttr || !psAttr || !cb || !audioSrv) { error = L"Could not create the GPU resources."; return false; }
     return true;
   }
 
@@ -166,7 +170,7 @@ public:
     if (iw != fw || ih != fh) makeFeedback(iw, ih);
   }
 
-  void render(const float* P, const AudioFrame& a, int copies) {
+  void render(const float* P, const AudioFrame& a, const DrawInfo& di) {
     D3D11_MAPPED_SUBRESOURCE m;
     if (SUCCEEDED(ctx->Map(cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) { memcpy(m.pData, P, P_FLOATS * 4); ctx->Unmap(cb.Get(), 0); }
     if (SUCCEEDED(ctx->Map(audioTex.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
@@ -205,7 +209,14 @@ public:
     ctx->OMSetBlendState(addBlend.Get(), nullptr, 0xffffffff);
     ctx->VSSetShader(vsWave.Get(), nullptr, 0);
     ctx->PSSetShader(psWave.Get(), nullptr, 0);
-    ctx->DrawInstanced(WAVE_SEGS * 6, UINT(std::clamp(copies, 1, 6)), 0, 0);
+    ctx->DrawInstanced(WAVE_SEGS * 6, UINT(std::clamp(di.copies, 1, 6)), 0, 0);
+
+    // 3. Strange attractor points, added on top.
+    if (di.attrPoints > 0) {
+      ctx->VSSetShader(vsAttr.Get(), nullptr, 0);
+      ctx->PSSetShader(psAttr.Get(), nullptr, 0);
+      ctx->Draw(UINT(di.attrPoints) * 6, 0);
+    }
     ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
     cur = nxt;
 
@@ -224,7 +235,7 @@ public:
       }
     }
 
-    // 3. Composite to the screen.
+    // 4. Composite to the screen.
     ctx->PSSetShaderResources(0, 2, none);
     setTargetView(bbRtv.Get(), bw, bh);
     ctx->VSSetShader(vsFull.Get(), nullptr, 0);
@@ -300,8 +311,8 @@ private:
   }
   ComPtr<ID3D11ShaderResourceView> audioSrv;
   ComPtr<ID3D11Buffer> cb;
-  ComPtr<ID3D11VertexShader> vsFull, vsWave;
-  ComPtr<ID3D11PixelShader> psWarp, psWave, psComp, psCopy;
+  ComPtr<ID3D11VertexShader> vsFull, vsWave, vsAttr;
+  ComPtr<ID3D11PixelShader> psWarp, psWave, psComp, psCopy, psAttr;
   ComPtr<ID3D11SamplerState> sMirror, sClamp;
   ComPtr<ID3D11BlendState> addBlend;
   ComPtr<ID3D11RasterizerState> raster;
@@ -411,7 +422,14 @@ void renderThread(Shared* sh) {
   Audio audio;
   audio.start();
   Evolver evo;
-  evo.init(unsigned(GetTickCount64() ^ GetCurrentProcessId()), sh->favPath);
+  {
+    Settings s0;
+    {
+      std::lock_guard<std::mutex> l(sh->mu);
+      s0 = sh->s;
+    }
+    evo.init(unsigned(GetTickCount64() ^ GetCurrentProcessId()), sh->favPath, s0);
+  }
   Visuals vis;
   AudioFrame af;
   HWND cur = nullptr;
@@ -435,6 +453,13 @@ void renderThread(Shared* sh) {
       floating = sh->targetFloating;
     }
     audio.setDemo(s.source == 1);
+    {
+      AudioParams ap;
+      ap.beatSens = s.x[XF_BEAT_SENS]; ap.beatGap = s.x[XF_BEAT_GAP]; ap.sectionDb = s.x[XF_SECTION_DB];
+      ap.sectionCool = s.x[XF_SECTION_COOL]; ap.eventSens = s.x[XF_EVENT_SENS]; ap.silenceDb = s.x[XF_SILENCE_DB];
+      ap.specFall = s.x[XF_SPEC_FALL]; ap.specRange = s.x[XF_SPEC_RANGE];
+      audio.setParams(ap);
+    }
     double t = nowS();
     float dt = float(std::min(t - last, 0.1));
     last = t;
@@ -455,6 +480,7 @@ void renderThread(Shared* sh) {
       sh->st.evo = line;
       sh->st.scene = evo.describe() + L"\n" + evo.lastEvent;
       sh->st.favorites = evo.favoriteCount();
+      sh->st.heard = evo.heard(af);
     }
 
     if (!gpuOk) { Sleep(50); continue; }
@@ -469,16 +495,16 @@ void renderThread(Shared* sh) {
     if (floating) {
       float k = GetDpiForWindow(cur) / 96.f;
       gx = gy = GRIP_X * k;
-      gr = GRIP_R * k;
+      gr = s.x[XF_GRIP_SIZE] * k;
       POINT pt;
       GetCursorPos(&pt);
       ScreenToClient(cur, &pt);
-      float dx = pt.x - gx, dy = pt.y - gy, hit = GRIP_HIT * k;
+      float dx = pt.x - gx, dy = pt.y - gy, hit = gripHit(s.x[XF_GRIP_SIZE]) * k;
       gop = std::min(1.f, s.gripOpacity * (dx * dx + dy * dy < hit * hit ? 2.5f : 1.f));
     }
-    int copies = 1;
-    vis.build(P, evo, af, s, dt, rc.right, rc.bottom, gx, gy, gr, gop, gpu.meanLum, copies);
-    gpu.render(P, af, copies);
+    DrawInfo di;
+    vis.build(P, evo, af, s, dt, rc.right, rc.bottom, gx, gy, gr, gop, gpu.meanLum, di);
+    gpu.render(P, af, di);
 
     if (firstFrame < 0) firstFrame = t;
     if (!sh->shotPath.empty() && shots < sh->shotCount && t - firstFrame >= sh->shotAfter + shots * sh->shotEvery) {
@@ -496,7 +522,9 @@ void renderThread(Shared* sh) {
     // Frame cap at the monitor's refresh rate, for when presents don't wait for vsync
     // (display asleep, remote sessions, some drivers).
     if (t - lastHzCheck > 2.0) { lastHzCheck = t; hz = std::clamp(monitorHz(cur), 30, 500); }
-    double budget = 1.0 / hz - (nowS() - frameStart);
+    int cap = kFpsCaps[std::clamp(s.xi[XI_FPS], 0, 5)];
+    int hzCap = cap > 0 ? std::min(hz, cap) : hz;
+    double budget = 1.0 / hzCap - (nowS() - frameStart);
     if (budget > 0.0005) preciseSleep(budget);
     frames++;
     if (t - fpsT >= 1.0) {
@@ -510,9 +538,11 @@ void renderThread(Shared* sh) {
           return s;
         };
         if (FILE* f = _wfopen(sh->logPath.c_str(), L"ab")) {
-          fprintf(f, "fps %.0f flip %d present 0x%08lx size %ldx%ld mean %.2f fill %.2f | %s level %.2f dB %.0f silent %d beats %d sections %d | gen %d scene %d cx %.2f | %s\n",
+          fprintf(f, "fps %.0f flip %d present 0x%08lx size %ldx%ld mean %.2f fill %.2f | %s level %.2f dB %.0f silent %d beats %d sections %d "
+                     "drops %d builds %d breaks %d tone %d hats %d vocals %d tempo %d hits %d bpm %.0f bright %.2f dens %.2f | gen %d scene %d cx %.2f | %s | %s\n",
                   fps, gpu.flip, (unsigned long)gpu.lastPresent, rc.right, rc.bottom, gpu.meanLum, vis.fill, u8(af.device).c_str(), af.level, af.dbfs, int(af.silent),
-                  af.beats, af.sections, evo.generation, evo.scene, evo.complexity, u8(evo.lastEvent).c_str());
+                  af.beats, af.sections, af.drops, af.builds, af.breaks, af.toneShifts, af.hatRushes, af.vocals, af.tempoChanges, af.hits, af.bpm,
+                  af.bright, af.beatDensity, evo.generation, evo.scene, evo.complexity, u8(evo.describe()).c_str(), u8(evo.lastEvent).c_str());
           fclose(f);
         }
       }

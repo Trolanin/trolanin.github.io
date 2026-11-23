@@ -8,15 +8,23 @@ effects: zooming, swirling trails, waveforms, kaleidoscopes and colour drift.
 
 The look is never fixed. Each song starts simple and builds up. Over the first few minutes
 of music, new layers unlock one at a time (spectrum ring, swirl, tunnel rings, sparkles,
-orbs, chromatic split, echo), and the whole look keeps drifting. When the music changes
-character (a drop, a breakdown), the scene mutates. When a song ends and a new one starts,
-a new "species" is born.
+orbs, chromatic split, echo), and then a layer of abstract maths opens up: fractal-flame
+warps, complex-plane lenses, wallpaper tilings, curl-noise flow, superformula and Lissajous
+shapes, and strange attractors. The whole look keeps drifting. What the music does (a bass
+drop, a build-up, a breakdown, the hi-hats coming in, a tempo change) decides what mutates.
+When a song ends and a new one starts, a new "species" is born.
+
+The app is dark throughout: title bar, controls, menus and scroll bars.
 
 ![The settings window with the visualizer docked](shots/settings.jpg)
 
 | Start of a song | A minute in | A few minutes in |
 |---|---|---|
 | ![](shots/evolve-1.jpg) | ![](shots/evolve-3.jpg) | ![](shots/evolve-5.jpg) |
+
+| Tunnel lens, p6m tiling, Clifford attractor | Bubble + polar flame, p4m tiling | Power lens, p3m1 tiling, Svensson attractor |
+|---|---|---|
+| ![](shots/math-1.jpg) | ![](shots/math-2.jpg) | ![](shots/math-3.jpg) |
 
 **Download:** [drift-viz.exe](https://trolanin.github.io/drift-viz/drift-viz.exe). It's a
 single file with no installer. It needs 64-bit Windows 10 or 11 and a DirectX 11 GPU.
@@ -68,21 +76,85 @@ Windows SmartScreen may warn you because the file isn't signed. Click "More info
 | Brightness | Overall exposure. The picture also auto-adjusts so stacked layers don't wash out to white. |
 | Render resolution | 50% / 75% / 100% of the window, for slower GPUs |
 | Undocked window stays on top | Keeps the borderless window above other windows |
+| Excessive options | Shows 83 more knobs, below. "Reset" puts just those back to their defaults. |
 
 Settings and favourites are saved in `%APPDATA%\DriftViz\`.
 
+### Excessive options
+
+Tick **Excessive options** at the bottom of the settings to open seven more groups:
+
+| Group | What's in it |
+|---|---|
+| Audio analysis | Beat sensitivity and minimum gap, how big a change counts as a new section, event sensitivity, the silence level, how long a gap means a new song, spectrum fall-off and range |
+| Mutate on audio events | For each musical event, how strongly it mutates and what it changes (see below). Also "every phrase" (a mutation every 8–64 beats), and a cooldown between event mutations. A line shows what has been heard so far. |
+| Audio steers the drift | Each gene group (motion, colour, shape, layers, math, symmetry) can follow one feature of the music: loudness, bass, mids, treble, tone brightness, beat density or novelty. The louder that feature, the faster that group drifts. |
+| Evolution engine | Drift damping, beat nudges, how many genes and switches change per scene, cross-fade and ease speeds, breeding from favourites, silence drain, where a new species starts, and the latent mixing and Lorenz chaos amounts |
+| Layer strengths | A multiplier for every layer (waveform, spectrum ring, tunnel, sparkles, orbs, attractor, echo, chromatic split, beat flash, kaleidoscope, mirror) |
+| Math space | When the maths unlocks, how strongly each math family can apply, and the attractor's points, iterations and dot size |
+| Fine look | Saturation, exposure target and auto exposure, vignette, colour cycling and drift speeds, zoom and spin bias, motion speed, line thickness, grip dot size, frame-rate cap |
+
+### What the music can mutate
+
+The analyser listens for these events, and each one can be pointed at a part of the look:
+everything, motion, colour, shape, layers, math space, symmetry, or a whole new species.
+
+| Event | Heard as | Changes by default |
+|---|---|---|
+| Music changes | The overall band-energy profile moves away from the last few seconds | everything |
+| Bass drop | The bass falls well below its average, then comes back hard | motion |
+| Build-up | Treble and level climb steadily for about 5 seconds | math space |
+| Breakdown | The level falls well below its average without going silent | colour |
+| Tone shift | The spectral centre of mass moves (darker or brighter sound) | colour |
+| Hi-hats pick up | Onsets in the 5–16 kHz band suddenly come much more often | shape |
+| Vocals / melody in | The mid band suddenly takes a bigger share of the energy | layers |
+| Tempo change | A new steady tempo holds for 4 seconds | everything |
+| Big hits | A beat several dB above the recent beats | symmetry |
+| Every phrase | Every 8, 16, 32 or 64 beats (off by default) | everything |
+
+## The math space
+
+Each family is a choice that cross-fades between its two strongest options, so the
+transitions are morphs rather than cuts.
+
+- **Fractal-flame warp.** Two of 24 variations (sinusoidal, spherical, swirl, horseshoe,
+  polar, heart, disc, spiral, bubble, fisheye and others) are applied after an affine
+  transform inside the feedback loop. Their mix and the affine coefficients are genes.
+- **Curl-noise flow.** A divergence-free flow field pushes the feedback, so trails curl
+  without bunching up.
+- **Complex lenses.** 12 maps of the view through the complex plane: power, inversion,
+  Möbius, Droste spiral, tunnel, hyperbolic, twist, barrel, complex sine, Joukowski and
+  polar unwrap.
+- **Wallpaper tiling.** p4m, p6m, p3m1, bricks and a pinwheel tiling repeat the picture.
+- **Superformula and Lissajous shapes** for the waveform, with their exponents and
+  frequency ratios as genes.
+- **Strange attractors.** Clifford, de Jong, Svensson and "dream" attractors are iterated on
+  the GPU as tens of thousands of glowing points, blended between two families.
+
+Together with the old layer choices this gives about 2.6 billion distinct combinations of
+discrete choices, up from about 11,000, before counting the roughly 70 continuous genes.
+
 ## How the evolution works
 
-- **Genes.** About 40 continuous parameters ("genes") cover zoom, rotation, swirl, warp,
-  decay, palette, waveform shape, kaleidoscope, echo and more. Each one wanders on a slow,
-  damped random walk inside a range that widens as complexity grows.
+- **Genes.** About 70 continuous parameters ("genes") cover zoom, rotation, swirl, warp,
+  decay, palette, waveform shape, kaleidoscope, echo, the flame affine, lens and tiling
+  parameters, the attractor coefficients and more. Each one wanders on a slow, damped random
+  walk inside a range that widens as complexity grows. They are sorted into six groups
+  (motion, colour, shape, layers, math space, symmetry) that audio events and steering act on.
 - **Choices.** Discrete choices (waveform shape, number of copies, kaleidoscope folds, mirror
-  mode, tunnel shape) cross-fade between options instead of popping.
+  mode, tunnel shape, flame variations, lens, tiling, attractor family) cross-fade between
+  their two strongest options instead of popping.
+- **Latent mixing.** Six slow hidden factors each pull on a sparse random set of genes, so
+  genes from different groups sometimes move together. That makes coordinated changes that a
+  per-gene random walk would almost never find. The loadings are re-rolled for every species.
+- **Lorenz chaos.** A Lorenz attractor runs alongside, and its three coordinates nudge genes
+  too. It never repeats and never settles, so the drift keeps finding new directions.
 - **Complexity.** Complexity rises while music plays and unlocks layers at set thresholds. It
   drains during silence.
-- **Scene mutations.** A mutation happens when the music changes character (the octave-band
-  energy profile of the last half second drifts away from the last eight), or when the scene
-  timer runs out. Beats add small nudges.
+- **Scene mutations.** A mutation happens when the analyser hears one of the events above,
+  or when the scene timer runs out. Each event changes only the genes and choices of its
+  target group, so a bass drop can shake up the motion while the colours stay put. Beats add
+  small nudges.
 - **New species.** After more than 4 seconds of silence (a new song), a new species is born and
   complexity resets. Half the time it is bred from your kept favourites, by crossover plus a little mutation.
 
@@ -101,11 +173,12 @@ It has no frameworks.
 
 | File | What's in it |
 |---|---|
-| `src/main.cpp` | Windows, settings UI, docking, borderless window, keys, settings file |
-| `src/render.cpp` | Render thread: D3D11 setup, feedback buffers, frame pacing, screenshots |
-| `src/shaders.hlsl` | Warp/feedback pass, waveform lines, composite (kaleidoscope, echo, tone map) |
-| `src/evolve.cpp` | The evolution engine and the mapping from genes and audio to shader parameters |
-| `src/audio.cpp` | WASAPI loopback capture, FFT analysis, beat / section / silence detection, demo beat |
+| `src/main.cpp` | Windows, dark-mode settings UI (custom-drawn buttons and sliders), docking, borderless window, keys, settings file |
+| `src/options.cpp` | The table of excessive options: labels, ranges, defaults and settings-file keys |
+| `src/render.cpp` | Render thread: D3D11 setup, feedback buffers, attractor pass, frame pacing, screenshots |
+| `src/shaders.hlsl` | Warp/feedback pass (flame variations, curl flow), waveform lines, attractor points, composite (lenses, tiling, kaleidoscope, echo, tone map) |
+| `src/evolve.cpp` | The evolution engine (genes, choices, latent factors, Lorenz drift, event triggers) and the mapping from genes and audio to shader parameters |
+| `src/audio.cpp` | WASAPI loopback capture, FFT analysis, beat / section / silence detection, musical event detection, demo beat |
 | `src/params.h` | Shader parameter slots shared by C++ and HLSL |
 
 ### Command-line options (for testing)
@@ -120,3 +193,6 @@ It has no frameworks.
 | `--shots N --after S --every S` | Take N screenshots: the first after S seconds, then one every S seconds (`file-1.png` …) |
 | `--log path` | Append fps, audio and evolution state once a second |
 | `--no-save` | Don't write settings on exit |
+| `--excessive` | Start with the excessive options shown |
+| `--scroll-more` | Start with the settings scrolled to the excessive options |
+| `--set key=value` | Set one excessive option, e.g. `--set x.mGate=0` (keys as in `settings.ini`) |

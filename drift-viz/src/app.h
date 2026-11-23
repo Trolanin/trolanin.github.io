@@ -9,10 +9,15 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include "options.h"
 
 // Everything the settings window can change. The UI thread writes it (under Shared::mu);
 // the render thread copies it once per frame.
 struct Settings {
+  Settings() { optDefaults(x, xi); }
+  float x[XF_COUNT];            // excessive options, sliders (see options.h)
+  int xi[XI_COUNT];             // excessive options, drop-downs
+  bool excessive = false;       // show them in the settings window
   int source = 0;               // 0 = what Windows is playing, 1 = built-in demo beat
   float reactivity = 1.0f;      // how hard the music pushes the motion
   float evoSpeed = 1.0f;        // drift speed and small-mutation rate
@@ -33,7 +38,7 @@ struct Settings {
 };
 
 struct Status {
-  std::wstring audio, evo, scene, error;
+  std::wstring audio, evo, scene, error, heard;
   float level = 0;
   int favorites = 0;
 };
@@ -58,7 +63,8 @@ struct Shared {
 
 #define WM_APP_SHOTS_DONE (WM_APP + 1)
 
-// Grip dot on the undocked window, in 96-dpi pixels.
-constexpr float GRIP_X = 12.0f, GRIP_R = 4.5f, GRIP_HIT = 14.0f;
+// Grip dot on the undocked window, in 96-dpi pixels (its radius is the "Grip dot size" option).
+constexpr float GRIP_X = 12.0f, GRIP_HIT = 14.0f;
+inline float gripHit(float radius) { return radius * 3.f > GRIP_HIT ? radius * 3.f : GRIP_HIT; }
 
 void renderThread(Shared* sh);
