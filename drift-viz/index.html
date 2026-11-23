@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drift music visualizer</title>
+<meta name="description" content="A trippy, ever-evolving music visualizer for Windows.">
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --fg: #1b1f24; --muted: #5b6470; --line: #dde1e6; --accent: #0f9d7a; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f1216; --card: #171b21; --fg: #e6e9ed; --muted: #9aa3ad; --line: #2a3038; --accent: #3ddc97; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 48px 16px; }
+  a { color: var(--accent); }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 36px 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .warn { color: var(--muted); font-size: .92rem; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 24px 0 8px; }
+  .btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600;
+         padding: 10px 18px; border-radius: 8px; }
+  @media (prefers-color-scheme: dark) { .btn { color: #08140f; } }
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); font-weight: 500; }
+  .btn.ghost:hover { border-color: var(--accent); }
+  .note { color: var(--muted); font-size: .9rem; margin: 0; }
+  img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); background: #000; }
+  .hero { margin: 28px 0 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .grid figure { margin: 0; }
+  .grid figcaption { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  ul { padding-left: 20px; margin: 0; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  td { border-top: 1px solid var(--line); padding: 6px 8px 6px 0; vertical-align: top; }
+  td:first-child { white-space: nowrap; font-weight: 600; width: 1%; padding-right: 16px; }
+  kbd { font: 600 .85rem ui-monospace, Consolas, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; padding: 1px 6px; background: var(--card); }
+  footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <p class="sub"><a href="../">← All projects</a></p>
+  <h1>Drift</h1>
+  <p class="sub">A trippy music visualizer for Windows that never looks the same twice. Every song starts simple and slowly grows into something else.</p>
+  <p class="warn">⚠️ AI vibe-coded (built with Claude) by a dumbass who has no idea what he's doing. Use at your own risk; no warranty, no promises.</p>
+
+  <div class="cta">
+    <a class="btn" href="drift-viz.exe" download>Download drift-viz.exe</a>
+    <a class="btn ghost" href="https://github.com/Trolanin/trolanin.github.io/tree/main/drift-viz">Source &amp; read me</a>
+  </div>
+  <p class="note">One file, no installer. Windows 10 or 11 (64-bit) with a DirectX 11 GPU. It's unsigned, so SmartScreen may warn you. Click <em>More info → Run anyway</em>.</p>
+
+  <img class="hero" src="shots/settings.jpg" alt="The Drift settings window with the visualizer docked on the right" width="1400" height="772">
+
+  <h2>It evolves</h2>
+  <p>It listens to whatever Windows is playing. While the music keeps going, new layers unlock one by one: spectrum ring, swirl, tunnel rings, sparkles, orbs, kaleidoscopes, echoes. Every setting keeps drifting slowly. When the music changes character, the scene mutates. When a new song starts, a new "species" is born. Press <kbd>L</kbd> on a look you love, and later species are sometimes bred from your favourites.</p>
+  <div class="grid">
+    <figure><img src="shots/evolve-1.jpg" alt="A single glowing waveform ring" loading="lazy" width="960" height="540"><figcaption>Start of a song</figcaption></figure>
+    <figure><img src="shots/evolve-2.jpg" alt="A swirling spiral of trails" loading="lazy" width="960" height="540"><figcaption>Swirl and trails unlock</figcaption></figure>
+    <figure><img src="shots/evolve-3.jpg" alt="A tunnel of rings with a kaleidoscope centre" loading="lazy" width="960" height="540"><figcaption>Tunnel rings</figcaption></figure>
+    <figure><img src="shots/evolve-4.jpg" alt="A colourful kaleidoscope" loading="lazy" width="960" height="540"><figcaption>Kaleidoscope</figcaption></figure>
+    <figure><img src="shots/evolve-5.jpg" alt="A green mandala" loading="lazy" width="960" height="540"><figcaption>Full complexity</figcaption></figure>
+    <figure><img src="shots/evolve-6.jpg" alt="A soft mirrored pattern" loading="lazy" width="960" height="540"><figcaption>A new scene</figcaption></figure>
+  </div>
+
+  <h2>Dock it, or let it float</h2>
+  <ul>
+    <li>Docked, the picture sits beside the settings. Drag the divider to resize either side.</li>
+    <li>Undocked, it's a borderless window with only a faint dot in its top-left corner. Drag the dot to move it, drag the edges to resize, and double-click the dot to fill the screen.</li>
+    <li>Type an exact size in the settings, keep it on top of other windows, or right-click it for a menu.</li>
+  </ul>
+
+  <h2>Keys</h2>
+  <table>
+    <tr><td><kbd>F</kbd> <kbd>F11</kbd></td><td>Fill screen (<kbd>Esc</kbd> to leave)</td></tr>
+    <tr><td><kbd>D</kbd></td><td>Dock / undock</td></tr>
+    <tr><td><kbd>M</kbd></td><td>Mutate now</td></tr>
+    <tr><td><kbd>N</kbd></td><td>New species</td></tr>
+    <tr><td><kbd>L</kbd></td><td>Keep this look</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Freeze evolution</td></tr>
+  </table>
+
+  <footer>Native C++, Direct3D 11 and WASAPI loopback. No frameworks, no telemetry, nothing leaves your PC.</footer>
+</main>
+</body>
+</html>

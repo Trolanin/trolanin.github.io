@@ -33,3 +33,25 @@ Browser tools, no build step: `designer.html` (design → generated FastLED .ino
   lambdas: the build compiles against android.jar, which can't support them. The signing key stays out of this
   repo. `android.html` is the install page.
 - The owner prefers native C++ tooling. Ask before switching languages or stacks to avoid an install.
+
+## drift-viz: Windows music visualizer (native C++)
+Win32 + Direct3D 11 + WASAPI loopback, no frameworks. `index.html` is the download page; `drift-viz.exe`
+is committed so the site can serve it. Rebuild it and recommit it after every source change. See `drift-viz/README.md`.
+- Build: `cmd /c "D:\Projects\public\drift-viz\build.bat"` from PowerShell. It needs VS 2022 Build Tools. It runs fxc to
+  compile the shaders into `build\*.h`, then rc and cl. The `build\` folder is ignored by git.
+- `src/params.h` holds the shader parameter slots and is shared by HLSL and C++. Add new slots there, never as raw numbers.
+- Threads:
+  - The UI thread runs `main.cpp`.
+  - The render thread (`render.cpp`) fetches audio, runs the evolution, then renders and presents.
+  - The audio thread (`audio.cpp`) analyses at 100 Hz.
+  - They share the `Shared` struct (`app.h`), guarded by its mutex plus atomics.
+- `evolve.cpp` is the progressive engine:
+  - Genes do a damped random walk inside complexity-dependent ranges, and layers unlock at gates.
+  - Scenes mutate on section changes or when the scene timer runs out. A new species starts after 4 s of silence.
+  - `Visuals::build` maps genes and audio to `P[]`. It includes the brightness control fed by `Gpu::meanLum`
+    (an average from a 1x1 mip, read back a few frames late).
+- Test hooks: `--demo --docked/--undocked --size WxH --evo-scale K --shot f.png --shots N --after S --every S --log path`.
+  `--shot` runs headless-ish (no focus steal, no settings save). Check visuals with a contact sheet of the `--shots` output.
+  On the owner's PC the display scale is 250%, so UI automation must call `SetThreadDpiAwarenessContext(-4)`.
+- Frame pacing: a waitable swap chain with max latency 1, plus a cap at the monitor refresh rate. Without them the flip model
+  ran at more than 6000 fps on this PC.

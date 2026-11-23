@@ -5,3 +5,4 @@ desktop.ini
 .vscode/
 *.log
 led-sim/android/build/
+drift-viz/build/
