@@ -36,6 +36,7 @@ enum {
   // excessive options: one id block per control kind, indexed by kOpts
   IDC_X_LABEL = 2000, IDC_X_CTRL = 2200, IDC_X_VALUE = 2400, IDC_X_SECTION = 2600,
   IDC_X_RANDOM = 2700, IDC_X_SECRESET = 2720,   // per-section buttons, indexed by section
+  IDC_X_LOCK = 2800,                            // padlocks, indexed by kOpts
 };
 enum { CMD_MUTATE = 1000, CMD_SPECIES, CMD_LIKE, CMD_FREEZE, CMD_DOCK, CMD_FILL, CMD_ONTOP, CMD_SETTINGS, CMD_EXIT };
 
@@ -76,9 +77,12 @@ namespace pal {
 const COLORREF bg = RGB(24, 25, 28), deep = RGB(12, 13, 15), surface = RGB(43, 45, 51), surfaceHot = RGB(56, 59, 67),
                surfaceDown = RGB(34, 35, 40), border = RGB(68, 71, 80), text = RGB(229, 231, 236), muted = RGB(146, 152, 163),
                accent = RGB(132, 112, 255), accentSoft = RGB(178, 166, 255), disabled = RGB(96, 100, 108), track = RGB(58, 61, 69);
+// Text fields and drop-downs: a faint, see-through-looking box (between bg and surface) with a soft outline.
+const COLORREF field = RGB(31, 32, 37), fieldHot = RGB(37, 39, 44), fieldLine = RGB(51, 53, 60), fieldLineHot = RGB(72, 75, 86),
+               fieldFocus = RGB(116, 102, 206);
 }
 
-struct XCtl { HWND label = nullptr, ctrl = nullptr, value = nullptr; };
+struct XCtl { HWND label = nullptr, ctrl = nullptr, value = nullptr, lock = nullptr; };
 
 struct App {
   HINSTANCE inst = nullptr;
@@ -87,7 +91,7 @@ struct App {
   std::thread rt;
   HFONT font = nullptr, bold = nullptr;
   HICON iconBig = nullptr, iconSmall = nullptr;
-  HBRUSH brBg = nullptr, brDeep = nullptr, brSurface = nullptr;
+  HBRUSH brBg = nullptr, brDeep = nullptr, brSurface = nullptr, brField = nullptr;
   UINT dpi = 96;
   int scrollY = 0, contentH = 0, moreY = 0;
   float meterLevel = 0;
@@ -105,6 +109,8 @@ struct App {
   HWND xRandom[8] = {}, xReset[8] = {};    // per-section buttons
   HWND favLabel = nullptr, favList = nullptr, favLoad = nullptr, favDel = nullptr;
   int favSeen = -2, favCount = -1;         // kept-looks list version shown, and its length
+  std::vector<char> xLock;                 // per kOpts: Random and Reset leave a locked knob alone
+  HWND hotField = nullptr;                 // drop-down under the mouse
   bool (WINAPI* allowDark)(HWND, bool) = nullptr;
 } g;
 
@@ -183,6 +189,7 @@ std::wstring wide(const char* s) { return std::wstring(s, s + strlen(s)); }
 void loadSettings() {
   Settings& s = S();
   const wchar_t* ini = g.iniPath.c_str();
+  g.xLock.assign(kOptCount, 0);
   auto rf = [&](const wchar_t* k, float& v) {
     wchar_t buf[64];
     GetPrivateProfileStringW(L"drift", k, L"", buf, 64, ini);
@@ -218,6 +225,7 @@ void loadSettings() {
       ri(k.c_str(), s.xi[d.index]);
       s.xi[d.index] = std::clamp(s.xi[d.index], 0, d.nItems - 1);
     }
+    g.xLock[i] = GetPrivateProfileIntW(L"drift", (k + L".lock").c_str(), 0, ini) != 0;
   }
   s.source = std::clamp(s.source, 0, 1);
   for (auto& d : kSliders) s.*d.field = std::clamp(s.*d.field, d.lo, d.hi);
@@ -258,6 +266,8 @@ void saveSettings() {
     std::wstring k = wide(d.key);
     if (d.kind == OPT_SLIDER) wf(k.c_str(), s.x[d.index]);
     else wi(k.c_str(), s.xi[d.index]);
+    // Only locked knobs get a line; unlocking removes it.
+    WritePrivateProfileStringW(L"drift", (k + L".lock").c_str(), g.xLock[i] ? L"1" : nullptr, ini);
   }
 }
 
@@ -379,14 +389,24 @@ void layoutPanel() {
       place(b2, x + w - bw, y, bw, Px(26));
       y += Px(32);
     };
-    auto sliderRow = [&](HWND label, HWND sl, HWND val) {
+    // Excessive rows end in a padlock (lock = nullptr: the main sliders, which have none).
+    int lkw = Px(24);
+    auto sliderRow = [&](HWND label, HWND sl, HWND val, HWND lock = nullptr) {
+      int r = lock ? lkw + Px(4) : 0;
       place(label, x, y + Px(5), lw, Px(18));
-      place(sl, x + lw, y, w - lw - vw, Px(28));
-      place(val, x + w - vw, y + Px(5), vw, Px(18));
+      place(sl, x + lw, y, w - lw - vw - r, Px(28));
+      place(val, x + w - vw - r, y + Px(5), vw, Px(18));
+      if (lock) place(lock, x + w - lkw, y + Px(2), lkw, Px(24));
       y += Px(30);
     };
     auto slider = [&](int i) { sliderRow(g.sliderLabel[i], g.slider[i], g.sliderVal[i]); };
-    auto combo = [&](HWND label, HWND cb) { place(label, x, y + Px(4), lw, Px(18)); place(cb, x + lw, y, w - lw, Px(300)); y += Px(32); };
+    auto combo = [&](HWND label, HWND cb, HWND lock = nullptr) {
+      int r = lock ? lkw + Px(4) : 0;
+      place(label, x, y + Px(4), lw, Px(18));
+      place(cb, x + lw, y, w - lw - r, Px(300));
+      if (lock) place(lock, x + w - lkw, y - Px(2), lkw, Px(24));
+      y += Px(32);
+    };
     auto text = [&](HWND h, int lines) { place(h, x, y, w, Px(17) * lines); y += Px(17) * lines + Px(6); };
     auto check = [&](HWND h) { place(h, x, y, w, Px(22)); y += Px(26); };
     auto two = [&](HWND a, HWND b) {
@@ -419,13 +439,13 @@ void layoutPanel() {
     header(g.header[3]);
     two(g.dock, g.fill);
     {
-      int ew = Px(60), xw = Px(18);
+      int xw = Px(18), ew = std::clamp((w - lw - xw - Px(8) - Px(64)) / 2, Px(40), Px(60));   // Apply keeps 64 px
       place(g.sizeLabel, x, y + Px(5), lw, Px(18));
       place(g.editW, x + lw, y + Px(1), ew, Px(24));
       place(g.editX, x + lw + ew, y + Px(5), xw, Px(18));
       place(g.editH, x + lw + ew + xw, y + Px(1), ew, Px(24));
       int ax = x + lw + 2 * ew + xw + Px(8);
-      place(g.apply, ax, y, std::max(Px(50), x + w - ax), Px(28));
+      place(g.apply, ax, y, std::max(Px(40), x + w - ax), Px(28));
       y += Px(34);
     }
     check(g.onTop);
@@ -444,8 +464,8 @@ void layoutPanel() {
           subheader(g.xSection[sec], g.xRandom[sec], g.xReset[sec]);
           if (sec == 1) text(g.heard, 3);
         }
-        if (d.kind == OPT_SLIDER) sliderRow(g.x[i].label, g.x[i].ctrl, g.x[i].value);
-        else combo(g.x[i].label, g.x[i].ctrl);
+        if (d.kind == OPT_SLIDER) sliderRow(g.x[i].label, g.x[i].ctrl, g.x[i].value, g.x[i].lock);
+        else combo(g.x[i].label, g.x[i].ctrl, g.x[i].lock);
       }
     }
     g.contentH = y + g.scrollY + Px(12);
@@ -511,6 +531,7 @@ void showExcessive(bool on) {
     ShowWindow(c.label, cmd);
     ShowWindow(c.ctrl, cmd);
     if (c.value) ShowWindow(c.value, cmd);
+    ShowWindow(c.lock, cmd);
   }
   for (int i = 0; i < kOptSectionCount; i++) {
     ShowWindow(g.xSection[i], cmd);
@@ -528,12 +549,13 @@ void showExcessive(bool on) {
 }
 
 // A section's Random (every knob it may touch gets a random value) or Reset (its defaults).
+// Locked knobs are left alone by both.
 void setSection(int sec, bool random) {
   static std::mt19937 rng{ std::random_device{}() };
   editSettings([&](Settings& s) {
     for (int i = 0; i < kOptCount; i++) {
       const OptDef& d = kOpts[i];
-      if (d.section != sec || (random && !optRandomizable(d))) continue;
+      if (d.section != sec || g.xLock[i] || (random && !optRandomizable(d))) continue;
       if (d.kind == OPT_SLIDER) s.x[d.index] = random ? snapOpt(d, std::uniform_real_distribution<float>(d.lo, d.hi)(rng)) : d.def;
       else s.xi[d.index] = random ? std::uniform_int_distribution<int>(0, d.nItems - 1)(rng) : int(d.def);
     }
@@ -698,10 +720,17 @@ void addTip(HWND ctl, const std::wstring& text) {
 }
 
 void createTooltips() {
-  g.tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT,
-                          CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g.panel, nullptr, g.inst, nullptr);
+  // No fade or slide: those animate the window's opacity and would undo the fixed one set below.
+  g.tip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, TOOLTIPS_CLASSW, nullptr,
+                          WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX | TTS_NOFADE | TTS_NOANIMATE, CW_USEDEFAULT, CW_USEDEFAULT,
+                          CW_USEDEFAULT, CW_USEDEFAULT, g.panel, nullptr, g.inst, nullptr);
   if (!g.tip) return;
   SetWindowTheme(g.tip, L"", L"");   // unthemed, so the dark colours below apply
+  SetLayeredWindowAttributes(g.tip, 0, 232, LWA_ALPHA);   // slightly see-through
+  DWORD round = 2;                                        // DWMWCP_ROUND (Windows 11)
+  DwmSetWindowAttribute(g.tip, 33, &round, sizeof round);
+  COLORREF edge = pal::border;
+  DwmSetWindowAttribute(g.tip, 34, &edge, sizeof edge);   // DWMWA_BORDER_COLOR
   SendMessageW(g.tip, TTM_SETTIPBKCOLOR, pal::surface, 0);
   SendMessageW(g.tip, TTM_SETTIPTEXTCOLOR, pal::text, 0);
   SendMessageW(g.tip, TTM_SETDELAYTIME, TTDT_INITIAL, 450);
@@ -743,10 +772,13 @@ void createTooltips() {
                     L"to hold it exactly.");
   addTip(g.favDel, L"Deletes the selected kept look (asks first).");
   for (int i = 0; i < kOptSectionCount; i++) {
-    addTip(g.xRandom[i], L"Sets every knob in this group to a random value (frame rate, grip dot size and the silence "
-                         L"level are left alone). Press Reset to go back to the defaults.");
-    addTip(g.xReset[i], L"Puts just this group's knobs back to their defaults.");
+    addTip(g.xRandom[i], L"Sets every knob in this group to a random value (locked knobs, frame rate, grip dot size and "
+                         L"the silence level are left alone). Press Reset to go back to the defaults.");
+    addTip(g.xReset[i], L"Puts just this group's knobs back to their defaults (locked knobs stay as they are).");
   }
+  for (auto& c : g.x)
+    addTip(c.lock, L"Lock: Random and Reset leave this knob alone (you can still change it yourself). "
+                   L"Click again to unlock.");
 }
 
 /* ------------------------------ dock / undock / fill ------------------------------ */
@@ -919,12 +951,46 @@ void refreshStatus() {
 }
 
 /* ------------------------------ dark controls ------------------------------ */
+// A small padlock: closed and in the accent colour when locked, open and faint when not.
+void drawPadlock(HDC dc, const RECT& rc, bool locked, bool hot) {
+  fillRect(dc, rc, pal::bg);
+  int s = std::min(rc.right - rc.left, rc.bottom - rc.top);
+  int cx = (rc.left + rc.right) / 2, cy = (rc.top + rc.bottom) / 2;
+  int bw = s * 12 / 24, bh = s * 9 / 24, bt = cy - s * 1 / 24;
+  RECT body = { cx - bw / 2, bt, cx - bw / 2 + bw, bt + bh };
+  COLORREF c = locked ? (hot ? pal::accentSoft : pal::accent) : hot ? pal::accentSoft : pal::disabled;
+  int sw = bw * 6 / 10, sl = cx - sw / 2, sr = sl + sw;   // shackle width and legs
+  int lift = locked ? 0 : s * 3 / 24;
+  int arcTop = bt - s * 6 / 24 - lift, arcMid = arcTop + sw / 2;
+  HPEN pen = CreatePen(PS_SOLID, std::max(2, Px(2)), c);
+  HGDIOBJ op = SelectObject(dc, pen), ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
+  Arc(dc, sl, arcTop, sr + 1, arcTop + sw + 1, sr, arcMid, sl, arcMid);   // the top half, right to left
+  MoveToEx(dc, sl, arcMid, nullptr);
+  LineTo(dc, sl, body.top);
+  MoveToEx(dc, sr, arcMid, nullptr);
+  LineTo(dc, sr, locked ? body.top : arcMid + s * 2 / 24);   // open: the right leg is out of the body
+  SelectObject(dc, op);
+  SelectObject(dc, ob);
+  DeleteObject(pen);
+  roundRect(dc, body, Px(2), locked ? c : pal::bg, c);
+  if (locked) {
+    int kw = std::max(2, Px(2));
+    RECT k = { cx - kw / 2, body.top + bh * 3 / 10, cx - kw / 2 + kw, body.top + bh * 7 / 10 };   // keyhole
+    fillRect(dc, k, pal::bg);
+  }
+}
+
 // Push buttons and check boxes, painted from NM_CUSTOMDRAW (the themed ones are always light).
 LRESULT drawButton(NMCUSTOMDRAW* cd) {
   if (cd->dwDrawStage != CDDS_PREPAINT) return CDRF_DODEFAULT;
   HWND h = cd->hdr.hwndFrom;
   HDC dc = cd->hdc;
   RECT rc = cd->rc;
+  int id = GetDlgCtrlID(h);
+  if (id >= IDC_X_LOCK && id < IDC_X_LOCK + kOptCount) {
+    drawPadlock(dc, rc, g.xLock[id - IDC_X_LOCK] != 0, (cd->uItemState & (CDIS_HOT | CDIS_SELECTED)) != 0);
+    return CDRF_SKIPDEFAULT;
+  }
   LONG type = GetWindowLongW(h, GWL_STYLE) & BS_TYPEMASK;
   bool check = type == BS_AUTOCHECKBOX || type == BS_CHECKBOX;
   bool hot = (cd->uItemState & CDIS_HOT) != 0, down = (cd->uItemState & CDIS_SELECTED) != 0;
@@ -1003,6 +1069,137 @@ LRESULT drawTrackbar(NMCUSTOMDRAW* cd) {
   return CDRF_DODEFAULT;
 }
 
+// Text fields (size boxes, the typed-value box): the rounded field is painted in the non-client
+// area, which is also padded so the text sits centred inside it.
+void paintField(HWND h, HDC dc = nullptr) {
+  bool own = !dc;
+  if (own) dc = GetWindowDC(h);
+  RECT wr, cr;
+  GetWindowRect(h, &wr);
+  GetClientRect(h, &cr);
+  MapWindowPoints(h, nullptr, (POINT*)&cr, 2);
+  OffsetRect(&cr, -wr.left, -wr.top);
+  OffsetRect(&wr, -wr.left, -wr.top);
+  int save = SaveDC(dc);
+  ExcludeClipRect(dc, cr.left, cr.top, cr.right, cr.bottom);
+  bool focus = GetFocus() == h, dis = !IsWindowEnabled(h);
+  fillRect(dc, wr, pal::bg);
+  roundRect(dc, wr, Px(6), dis ? pal::bg : pal::field, focus ? pal::fieldFocus : pal::fieldLine);
+  RestoreDC(dc, save);
+  if (own) ReleaseDC(h, dc);
+}
+
+LRESULT CALLBACK fieldEditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+  switch (msg) {
+    case WM_NCCALCSIZE: {
+      RECT* r = wp ? &((NCCALCSIZE_PARAMS*)lp)->rgrc[0] : (RECT*)lp;
+      HDC dc = GetDC(h);
+      HGDIOBJ of = SelectObject(dc, (HFONT)SendMessageW(h, WM_GETFONT, 0, 0));
+      TEXTMETRICW tm;
+      GetTextMetricsW(dc, &tm);
+      SelectObject(dc, of);
+      ReleaseDC(h, dc);
+      int hgt = r->bottom - r->top, top = std::max(1, (hgt - int(tm.tmHeight)) / 2), pad = Px(7);
+      r->left += pad;
+      r->right = std::max(r->left, r->right - pad);
+      r->top += top;
+      r->bottom = std::max(r->top, std::min(r->bottom - 1, r->top + int(tm.tmHeight)));
+      return 0;
+    }
+    case WM_NCPAINT: paintField(h); return 0;
+    case WM_PRINT:
+      if (lp & PRF_NONCLIENT) {
+        paintField(h, (HDC)wp);
+        lp &= ~PRF_NONCLIENT;
+      }
+      break;
+    case WM_SETFONT: {
+      LRESULT res = DefSubclassProc(h, msg, wp, lp);
+      SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+      return res;
+    }
+    case WM_SETFOCUS: case WM_KILLFOCUS: case WM_ENABLE: {
+      LRESULT res = DefSubclassProc(h, msg, wp, lp);
+      if (IsWindowVisible(h)) paintField(h);   // the outline lights up while typing
+      return res;
+    }
+    case WM_NCDESTROY: RemoveWindowSubclass(h, fieldEditProc, 2); break;
+  }
+  return DefSubclassProc(h, msg, wp, lp);
+}
+
+// Drop-downs: the closed box is painted here (rounded, faint, a chevron on the right); the open list
+// keeps the dark surface colour.
+void paintCombo(HWND h, HDC dc) {
+  RECT rc;
+  GetClientRect(h, &rc);
+  bool dis = !IsWindowEnabled(h), drop = SendMessageW(h, CB_GETDROPPEDSTATE, 0, 0) != 0;
+  bool focus = GetFocus() == h, hot = g.hotField == h && !dis;
+  fillRect(dc, rc, pal::bg);
+  roundRect(dc, rc, Px(6), dis ? pal::bg : (hot || drop) ? pal::fieldHot : pal::field,
+            (focus || drop) && !dis ? pal::fieldFocus : hot ? pal::fieldLineHot : pal::fieldLine);
+  std::wstring text;
+  int sel = ComboBox_GetCurSel(h);
+  if (sel >= 0) {
+    text.resize(size_t(std::max(0, int(ComboBox_GetLBTextLen(h, sel)))) + 1);
+    ComboBox_GetLBText(h, sel, text.data());
+    text.resize(wcslen(text.c_str()));
+  }
+  HGDIOBJ of = SelectObject(dc, (HFONT)SendMessageW(h, WM_GETFONT, 0, 0));
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, dis ? pal::disabled : pal::text);
+  RECT t = rc;
+  t.left += Px(9);
+  t.right -= Px(28);
+  DrawTextW(dc, text.c_str(), -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  SelectObject(dc, of);
+  int cx = rc.right - Px(15), cy = (rc.top + rc.bottom) / 2, a = Px(4);
+  HPEN pen = CreatePen(PS_SOLID, std::max(1, Px(3) / 2), dis ? pal::disabled : hot || drop ? pal::accentSoft : pal::muted);
+  HGDIOBJ op = SelectObject(dc, pen);
+  int dy = drop ? -1 : 1;   // the chevron points up while the list is open
+  POINT pts[3] = { { cx - a, cy - dy * a / 2 }, { cx, cy + dy * a / 2 }, { cx + a + 1, cy - dy * a / 2 - dy } };
+  Polyline(dc, pts, 3);
+  SelectObject(dc, op);
+  DeleteObject(pen);
+}
+
+LRESULT CALLBACK fieldComboProc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+  switch (msg) {
+    case WM_PAINT: {
+      PAINTSTRUCT ps;
+      HDC dc = BeginPaint(h, &ps);
+      paintCombo(h, dc);
+      EndPaint(h, &ps);
+      return 0;
+    }
+    case WM_PRINTCLIENT: paintCombo(h, (HDC)wp); return 0;
+    case WM_ERASEBKGND: return 1;
+    case WM_MOUSEMOVE:
+      if (g.hotField != h) {
+        if (g.hotField) InvalidateRect(g.hotField, nullptr, FALSE);
+        g.hotField = h;
+        TRACKMOUSEEVENT tme = { sizeof tme, TME_LEAVE, h, 0 };
+        TrackMouseEvent(&tme);
+        InvalidateRect(h, nullptr, FALSE);
+      }
+      break;
+    case WM_MOUSELEAVE:
+      if (g.hotField == h) g.hotField = nullptr;
+      InvalidateRect(h, nullptr, FALSE);
+      break;
+    case WM_SETFOCUS: case WM_KILLFOCUS: case WM_ENABLE: case CB_SETCURSEL: case CB_RESETCONTENT: {
+      LRESULT res = DefSubclassProc(h, msg, wp, lp);
+      InvalidateRect(h, nullptr, FALSE);
+      return res;
+    }
+    case WM_NCDESTROY:
+      if (g.hotField == h) g.hotField = nullptr;
+      RemoveWindowSubclass(h, fieldComboProc, 2);
+      break;
+  }
+  return DefSubclassProc(h, msg, wp, lp);
+}
+
 // Sliders and closed drop-downs pass the mouse wheel to the panel, so scrolling the long
 // settings list never changes a value by accident.
 LRESULT CALLBACK wheelToPanel(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR isCombo) {
@@ -1018,10 +1215,16 @@ HWND mk(const wchar_t* cls, const wchar_t* text, DWORD style, int id, DWORD ex =
   if (cls == WC_COMBOBOXW) {
     darkControl(h, L"DarkMode_CFD");
     COMBOBOXINFO ci = { sizeof ci };
-    if (GetComboBoxInfo(h, &ci) && ci.hwndList) darkControl(ci.hwndList, L"DarkMode_Explorer");
+    if (GetComboBoxInfo(h, &ci) && ci.hwndList) {
+      darkControl(ci.hwndList, L"DarkMode_Explorer");
+      DWORD round = 3;   // DWMWCP_ROUNDSMALL: the open list gets rounded corners too (Windows 11)
+      DwmSetWindowAttribute(ci.hwndList, 33, &round, sizeof round);
+    }
     SetWindowSubclass(h, wheelToPanel, 1, 1);
+    SetWindowSubclass(h, fieldComboProc, 2, 0);
   } else if (cls == WC_EDITW) {
     darkControl(h, L"DarkMode_CFD");
+    SetWindowSubclass(h, fieldEditProc, 2, 0);
   } else if (cls == TRACKBAR_CLASSW) {
     SetWindowSubclass(h, wheelToPanel, 1, 0);
   }
@@ -1079,9 +1282,9 @@ void createControls() {
   g.dock = mk(WC_BUTTONW, L"Undock visualizer", BS_PUSHBUTTON | WS_TABSTOP, IDC_DOCK);
   g.fill = mk(WC_BUTTONW, L"Fill screen", BS_PUSHBUTTON | WS_TABSTOP, IDC_FILL);
   g.sizeLabel = mk(WC_STATICW, L"Visualizer size", SS_LEFT, IDC_SIZE_LABEL);
-  g.editW = mk(WC_EDITW, L"", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_W, WS_EX_CLIENTEDGE);
+  g.editW = mk(WC_EDITW, L"", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_W);
   g.editX = mk(WC_STATICW, L"×", SS_CENTER, IDC_X);
-  g.editH = mk(WC_EDITW, L"", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_H, WS_EX_CLIENTEDGE);
+  g.editH = mk(WC_EDITW, L"", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP, IDC_H);
   g.apply = mk(WC_BUTTONW, L"Apply", BS_PUSHBUTTON | WS_TABSTOP, IDC_APPLY);
   g.onTop = mk(WC_BUTTONW, L"Undocked window stays on top", BS_AUTOCHECKBOX | WS_TABSTOP, IDC_ONTOP);
   Button_SetCheck(g.onTop, s.onTop ? BST_CHECKED : BST_UNCHECKED);
@@ -1118,8 +1321,9 @@ void createControls() {
       for (int k = 0; k < d.nItems; k++) ComboBox_AddString(c.ctrl, d.items[k]);
       ComboBox_SetCurSel(c.ctrl, s.xi[d.index]);
     }
+    c.lock = mk(WC_BUTTONW, L"", BS_PUSHBUTTON, IDC_X_LOCK + i, 0, xs);
   }
-  g.valEdit = mk(WC_EDITW, L"", ES_RIGHT | ES_AUTOHSCROLL, IDC_VAL_EDIT, WS_EX_CLIENTEDGE, false);
+  g.valEdit = mk(WC_EDITW, L"", ES_RIGHT | ES_AUTOHSCROLL, IDC_VAL_EDIT, 0, false);
   SetWindowSubclass(g.valEdit, valEditProc, 1, 0);
 }
 
@@ -1167,7 +1371,12 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       SetTextColor(dc, (id >= IDC_X_SECTION && id < IDC_X_SECTION + 8) ? pal::accentSoft : isMutedText(id) ? pal::muted : pal::text);
       return (LRESULT)g.brBg;
     }
-    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLOREDIT: {
+      HDC dc = (HDC)wp;
+      SetBkColor(dc, pal::field);
+      SetTextColor(dc, pal::text);
+      return (LRESULT)g.brField;
+    }
     case WM_CTLCOLORLISTBOX: {
       HDC dc = (HDC)wp;
       SetBkColor(dc, pal::surface);
@@ -1241,6 +1450,12 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       int id = LOWORD(wp), code = HIWORD(wp);
       // Labels and empty space never take the focus, so a click on them ends typing here.
       if (code == STN_CLICKED && (HWND)lp != g.valEdit) endValueEdit(true, false);
+      // A drop-down can repaint its box itself when the selection or open state changes; paint ours back.
+      if (code == CBN_DROPDOWN || code == CBN_CLOSEUP || code == CBN_SELCHANGE || code == CBN_SELENDOK ||
+          code == CBN_SELENDCANCEL) {
+        wchar_t cls[32];
+        if (GetClassNameW((HWND)lp, cls, 32) && !_wcsicmp(cls, WC_COMBOBOXW)) InvalidateRect((HWND)lp, nullptr, FALSE);
+      }
       if (id == IDC_SOURCE && code == CBN_SELCHANGE) {
         int sel = ComboBox_GetCurSel(g.source);
         editSettings([&](Settings& s) { s.source = sel; });
@@ -1253,6 +1468,9 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         editSettings([&](Settings& s) { s.xi[d.index] = sel; });
       } else if (code == STN_CLICKED && editableValue(id)) {   // STN_CLICKED == BN_CLICKED, so check first
         beginValueEdit(id);
+      } else if (code == BN_CLICKED && id >= IDC_X_LOCK && id < IDC_X_LOCK + kOptCount) {
+        g.xLock[id - IDC_X_LOCK] ^= 1;
+        InvalidateRect((HWND)lp, nullptr, FALSE);
       } else if (code == BN_CLICKED && id >= IDC_X_RANDOM && id < IDC_X_RANDOM + kOptSectionCount) {
         setSection(id - IDC_X_RANDOM, true);
       } else if (code == BN_CLICKED && id >= IDC_X_SECRESET && id < IDC_X_SECRESET + kOptSectionCount) {
@@ -1274,8 +1492,7 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             break;
           }
           case IDC_RESET_X:
-            editSettings([](Settings& s) { optDefaults(s.x, s.xi); });
-            syncOptionControls();
+            for (int sec = 0; sec < kOptSectionCount; sec++) setSection(sec, false);   // skips locked knobs
             break;
           case IDC_MUTATE: doCommand(CMD_MUTATE); break;
           case IDC_SPECIES: doCommand(CMD_SPECIES); break;
@@ -1467,6 +1684,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
   g.brBg = CreateSolidBrush(pal::bg);
   g.brDeep = CreateSolidBrush(pal::deep);
   g.brSurface = CreateSolidBrush(pal::surface);
+  g.brField = CreateSolidBrush(pal::field);
 
   // --data <folder> keeps settings and kept looks somewhere else (testing without touching yours).
   std::wstring dir;

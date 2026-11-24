@@ -78,7 +78,7 @@ Windows SmartScreen may warn you because the file isn't signed. Click "More info
 | Brightness | Overall exposure. The picture also auto-adjusts so stacked layers don't wash out to white. |
 | Render resolution | 50% / 75% / 100% of the window, for slower GPUs |
 | Undocked window stays on top | Keeps the borderless window above other windows |
-| Excessive options | Shows 83 more knobs, below. "Reset" puts just those back to their defaults. |
+| Excessive options | Shows 83 more knobs, below. "Reset" puts just those back to their defaults (locked knobs stay). |
 
 Hover over any setting to see what changing it does to the picture. Click a slider's value to
 type an exact number: percentages in percent (`85` = 85%), everything else in the unit shown.
@@ -90,7 +90,10 @@ Settings and favourites are saved in `%APPDATA%\DriftViz\`.
 
 Tick **Excessive options** at the bottom of the settings to open seven more groups. Each group has a
 **Random** button, which sets its knobs to random values (frame rate, grip dot size and the silence level
-are left alone), and a **Reset** button that puts just that group back to its defaults:
+are left alone), and a **Reset** button that puts just that group back to its defaults.
+Every knob has a padlock at the end of its row: click it to lock that knob, and Random, Reset and
+"Reset the excessive options" all leave it alone (you can still change it yourself). Locks are saved
+with your settings. The groups:
 
 | Group | What's in it |
 |---|---|
