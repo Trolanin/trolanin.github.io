@@ -64,3 +64,6 @@ extern const wchar_t* const kOptSections[];
 extern const int kOptSectionCount;
 
 void optDefaults(float* x, int* xi);
+// False for the practical knobs a section's "Random" button leaves alone (frame rate, grip dot,
+// the silence level: random values there would only get in the way).
+bool optRandomizable(const OptDef& d);

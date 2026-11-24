@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 namespace {
 // lo..hi is the full range, reached at complexity 1. calmLo..calmHi is the range at
@@ -504,8 +505,10 @@ void Evolver::update(float dt, const AudioFrame& a, const Settings& s) {
   boost = std::max(0.f, boost - dt * 1.5f);
 }
 
-std::wstring Evolver::describe() const {
-  auto L = [&](int c) { return std::wstring(kChoices[c].label[choice[c]]); };
+std::wstring Evolver::describe() const { return describeLook(tgt, choice); }
+
+std::wstring Evolver::describeLook(const float* tgt, const int* choice) {
+  auto L = [&](int c) { return std::wstring(kChoices[c].label[std::clamp(choice[c], 0, kChoices[c].n - 1)]); };
   std::wstring s = L(C_SHAPE);
   if (choice[C_COPIES] > 0) s += L" " + L(C_COPIES);
   if (choice[C_KALEIDO] > 0) s += L" · kaleidoscope " + L(C_KALEIDO);
@@ -540,18 +543,87 @@ void Evolver::like() {
   for (int i = 0; i < G_COUNT; i++) f[1 + i] = g[i];
   for (int c = 0; c < C_COUNT; c++) f[1 + G_COUNT + c] = float(choice[c]);
   favs.push_back(f);
-  if (favs.size() > 50) favs.erase(favs.begin());
+  favTime.push_back((long long)time(nullptr));
+  if (favs.size() > 50) { favs.erase(favs.begin()); favTime.erase(favTime.begin()); }
   saveFavs();
-  lastEvent = L"Kept this look; new songs may be bred from it";
+  favVersion++;
+  lastEvent = L"Kept this look as #" + std::to_wstring(favs.size()) + L" (bring it back from \"Kept looks\")";
+}
+
+// The kept look becomes the start of a new species: its layers stay in, the ones it didn't
+// have stay out, and evolution carries on from there (tick Freeze to hold it).
+void Evolver::loadFav(int k) {
+  if (k < 0 || k >= int(favs.size())) return;
+  const std::vector<float> F = favs[k];
+  generation++;
+  scene = 1;
+  sceneTime = 0;
+  newLoadings();
+  newGates();
+  newPacing();
+  complexity = prevComplexity = std::clamp(std::isnan(F[0]) ? 0.5f : F[0], 0.f, 1.f);
+  cxTarget = std::clamp(complexity / std::max(set.complexityCap, 0.05f), 0.1f, 1.f);
+  cxTimer = std::max(6.f, set.buildMin * 60.f) * uni(0.15f, 0.6f);
+  for (int i = 0; i < G_COUNT; i++) {
+    float v = F[1 + i];
+    if (std::isnan(v)) continue;   // kept before this gene existed: leave it to this species
+    // Layers and effects that can be absent: in the look if clearly on (same test as breeding),
+    // otherwise kept out. A leftover from a layer that was fading out counts as out.
+    const GeneDef& d = kGenes[i];
+    if (d.gate > 0 || d.math) relGate[i] = std::fabs(v) > 0.05f * (d.hi - d.lo) ? -1.f : 9.f;
+    else relGate[i] = -1.f;
+    tgt[i] = v;
+    vel[i] = 0;
+  }
+  for (int c = 0; c < C_COUNT; c++) {
+    choice[c] = std::clamp(int(F[1 + G_COUNT + c]), 0, kChoices[c].n - 1);
+    relOpt[c][choice[c]] = -1.f;
+  }
+  boost = 2.0f;
+  lastEvent = L"Brought back kept look #" + std::to_wstring(k + 1);
+}
+
+void Evolver::deleteFav(int k) {
+  if (k < 0 || k >= int(favs.size())) return;
+  favs.erase(favs.begin() + k);
+  favTime.erase(favTime.begin() + k);
+  saveFavs();
+  favVersion++;
+  lastEvent = L"Deleted kept look #" + std::to_wstring(k + 1);
+}
+
+std::vector<std::wstring> Evolver::favLabels() const {
+  std::vector<std::wstring> out;
+  for (size_t k = 0; k < favs.size(); k++) {
+    const auto& f = favs[k];
+    float genes[G_COUNT];
+    int ch[C_COUNT];
+    for (int i = 0; i < G_COUNT; i++) genes[i] = std::isnan(f[1 + i]) ? 0.f : f[1 + i];
+    for (int c = 0; c < C_COUNT; c++) ch[c] = int(f[1 + G_COUNT + c]);
+    wchar_t when[48] = L"kept earlier";
+    time_t t = time_t(favTime[k]);
+    tm lt;
+    if (t > 0 && localtime_s(&lt, &t) == 0) wcsftime(when, 48, L"%b %d, %H:%M", &lt);
+    out.push_back(L"#" + std::to_wstring(k + 1) + L"  " + when + L"  ·  " + describeLook(genes, ch));
+  }
+  return out;
 }
 
 void Evolver::loadFavs() {
   favs.clear();
+  favTime.clear();
+  favVersion++;
   if (favPath.empty()) return;
   FILE* fp = _wfopen(favPath.c_str(), L"r");
   if (!fp) return;
   char line[8192];
   while (fgets(line, sizeof line, fp)) {
+    // Optional "# t=<unix time>" after the numbers (older builds stop reading at the '#').
+    long long when = 0;
+    if (char* hash = strchr(line, '#')) {
+      if (const char* tt = strstr(hash, "t=")) when = _atoi64(tt + 2);
+      *hash = 0;
+    }
     std::vector<float> f;
     for (char* tok = strtok(line, " \t\r\n"); tok; tok = strtok(nullptr, " \t\r\n")) {
       if (_strnicmp(tok, "nan", 3) == 0 || _strnicmp(tok, "-nan", 4) == 0) { f.push_back(NAN); continue; }
@@ -560,7 +632,7 @@ void Evolver::loadFavs() {
       if (e == tok) break;
       f.push_back(v);
     }
-    if (int(f.size()) == kFavFloats) favs.push_back(f);
+    if (int(f.size()) == kFavFloats) { favs.push_back(f); favTime.push_back(when); }
     else if (int(f.size()) == kOldFavFloats) {
       // Kept before the math space existed: the new genes are filled in when bred.
       std::vector<float> v(kFavFloats, NAN);
@@ -568,6 +640,7 @@ void Evolver::loadFavs() {
       for (int i = 0; i < kOldGenes; i++) v[1 + i] = f[1 + i];
       for (int c = 0; c < C_COUNT; c++) v[1 + G_COUNT + c] = c < kOldChoices ? f[1 + kOldGenes + c] : 0.f;
       favs.push_back(v);
+      favTime.push_back(when);
     }
   }
   fclose(fp);
@@ -577,12 +650,14 @@ void Evolver::saveFavs() const {
   if (favPath.empty()) return;
   FILE* fp = _wfopen(favPath.c_str(), L"w");
   if (!fp) return;
-  for (auto& f : favs) {
+  for (size_t k = 0; k < favs.size(); k++) {
+    const auto& f = favs[k];
     for (size_t i = 0; i < f.size(); i++) {
       if (i) fputc(' ', fp);
       if (std::isnan(f[i])) fputs("nan", fp);
       else fprintf(fp, "%.6g", f[i]);
     }
+    if (favTime[k] > 0) fprintf(fp, " # t=%lld", favTime[k]);
     fputc('\n', fp);
   }
   fclose(fp);

@@ -475,6 +475,8 @@ void renderThread(Shared* sh) {
     if (sh->mutateReq.exchange(0)) evo.mutateScene(1.f, L"Mutated by hand");
     if (sh->speciesReq.exchange(0)) evo.newSpecies(L"New species by hand");
     if (sh->likeReq.exchange(0)) evo.like();
+    if (int k = sh->loadFavReq.exchange(-1); k >= 0) evo.loadFav(k);
+    if (int k = sh->delFavReq.exchange(-1); k >= 0) evo.deleteFav(k);
     evo.update(dt * sh->evoScale, af, s);
 
     if (t - lastStatus > 0.25) {
@@ -488,6 +490,10 @@ void renderThread(Shared* sh) {
       sh->st.evo = line;
       sh->st.scene = evo.describe() + L"\n" + evo.lastEvent;
       sh->st.favorites = evo.favoriteCount();
+      if (sh->st.favVersion != evo.favVersion) {
+        sh->st.favNames = evo.favLabels();
+        sh->st.favVersion = evo.favVersion;
+      }
       sh->st.heard = evo.heard(af);
     }
 

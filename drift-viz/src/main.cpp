@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cwctype>
 #include <deque>
+#include <random>
 #include <thread>
 #include <vector>
 #pragma comment(lib, "comctl32.lib")
@@ -30,9 +31,11 @@ enum {
   IDC_SOURCE = 100, IDC_SOURCE_LABEL, IDC_AUDIO_STATUS, IDC_FREEZE, IDC_MUTATE, IDC_SPECIES, IDC_LIKE,
   IDC_EVO_STATUS, IDC_SCENE_STATUS, IDC_SCALE, IDC_SCALE_LABEL, IDC_DOCK, IDC_SIZE_LABEL, IDC_W, IDC_X,
   IDC_H, IDC_APPLY, IDC_FILL, IDC_ONTOP, IDC_TIPS, IDC_METER, IDC_EXCESSIVE, IDC_RESET_X, IDC_HEARD, IDC_VAL_EDIT,
+  IDC_FAV_LABEL, IDC_FAV_LIST, IDC_FAV_LOAD, IDC_FAV_DEL,
   IDC_HEADER = 150, IDC_SLIDER = 200, IDC_SLIDER_VALUE = 300, IDC_SLIDER_LABEL = 400,
   // excessive options: one id block per control kind, indexed by kOpts
   IDC_X_LABEL = 2000, IDC_X_CTRL = 2200, IDC_X_VALUE = 2400, IDC_X_SECTION = 2600,
+  IDC_X_RANDOM = 2700, IDC_X_SECRESET = 2720,   // per-section buttons, indexed by section
 };
 enum { CMD_MUTATE = 1000, CMD_SPECIES, CMD_LIKE, CMD_FREEZE, CMD_DOCK, CMD_FILL, CMD_ONTOP, CMD_SETTINGS, CMD_EXIT };
 
@@ -99,6 +102,9 @@ struct App {
   HWND tip = nullptr, valEdit = nullptr;   // mouse-over descriptions; the box for typing a value
   std::deque<std::wstring> tipText;        // the tooltip keeps pointers into these
   int editId = 0;                          // value label being typed into (0 = none)
+  HWND xRandom[8] = {}, xReset[8] = {};    // per-section buttons
+  HWND favLabel = nullptr, favList = nullptr, favLoad = nullptr, favDel = nullptr;
+  int favSeen = -2, favCount = -1;         // kept-looks list version shown, and its length
   bool (WINAPI* allowDark)(HWND, bool) = nullptr;
 } g;
 
@@ -364,7 +370,15 @@ void layoutPanel() {
     auto place = [&](HWND h, int px, int py, int pw, int ph) { SetWindowPos(h, nullptr, px, py, pw, ph, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW); };
     int lw = Px(124), vw = Px(60);
     auto header = [&](HWND h) { y += Px(8); place(h, x, y, w, Px(22)); y += Px(26); };
-    auto subheader = [&](HWND h) { y += Px(6); place(h, x, y, w, Px(20)); y += Px(24); };
+    // Section title with its Random and Reset buttons on the right.
+    auto subheader = [&](HWND h, HWND b1, HWND b2) {
+      y += Px(8);
+      int bw = Px(64), gap = Px(6);
+      place(h, x, y + Px(3), std::max(Px(40), w - 2 * bw - 2 * gap), Px(20));
+      place(b1, x + w - 2 * bw - gap, y, bw, Px(26));
+      place(b2, x + w - bw, y, bw, Px(26));
+      y += Px(32);
+    };
     auto sliderRow = [&](HWND label, HWND sl, HWND val) {
       place(label, x, y + Px(5), lw, Px(18));
       place(sl, x + lw, y, w - lw - vw, Px(28));
@@ -394,6 +408,8 @@ void layoutPanel() {
     check(g.freeze);
     two(g.mutate, g.species);
     one(g.like);
+    combo(g.favLabel, g.favList);
+    two(g.favLoad, g.favDel);
     text(g.evoStatus, 2);
     text(g.sceneStatus, 5);
     header(g.header[2]);
@@ -425,7 +441,7 @@ void layoutPanel() {
         const OptDef& d = kOpts[i];
         if (d.section != sec) {
           sec = d.section;
-          subheader(g.xSection[sec]);
+          subheader(g.xSection[sec], g.xRandom[sec], g.xReset[sec]);
           if (sec == 1) text(g.heard, 3);
         }
         if (d.kind == OPT_SLIDER) sliderRow(g.x[i].label, g.x[i].ctrl, g.x[i].value);
@@ -496,7 +512,11 @@ void showExcessive(bool on) {
     ShowWindow(c.ctrl, cmd);
     if (c.value) ShowWindow(c.value, cmd);
   }
-  for (int i = 0; i < kOptSectionCount; i++) ShowWindow(g.xSection[i], cmd);
+  for (int i = 0; i < kOptSectionCount; i++) {
+    ShowWindow(g.xSection[i], cmd);
+    ShowWindow(g.xRandom[i], cmd);
+    ShowWindow(g.xReset[i], cmd);
+  }
   ShowWindow(g.resetX, cmd);
   ShowWindow(g.heard, cmd);
   layoutPanel();
@@ -505,6 +525,44 @@ void showExcessive(bool on) {
     g.scrollY = g.moreY;
     layoutPanel();
   }
+}
+
+// A section's Random (every knob it may touch gets a random value) or Reset (its defaults).
+void setSection(int sec, bool random) {
+  static std::mt19937 rng{ std::random_device{}() };
+  editSettings([&](Settings& s) {
+    for (int i = 0; i < kOptCount; i++) {
+      const OptDef& d = kOpts[i];
+      if (d.section != sec || (random && !optRandomizable(d))) continue;
+      if (d.kind == OPT_SLIDER) s.x[d.index] = random ? snapOpt(d, std::uniform_real_distribution<float>(d.lo, d.hi)(rng)) : d.def;
+      else s.xi[d.index] = random ? std::uniform_int_distribution<int>(0, d.nItems - 1)(rng) : int(d.def);
+    }
+  });
+  syncOptionControls();
+}
+
+/* ------------------------------ kept looks ------------------------------ */
+void refreshFavList(const std::vector<std::wstring>& names) {
+  int sel = ComboBox_GetCurSel(g.favList), n = int(names.size());
+  bool grew = n > g.favCount;
+  ComboBox_ResetContent(g.favList);
+  for (auto& s : names) ComboBox_AddString(g.favList, s.c_str());
+  if (!n) ComboBox_AddString(g.favList, L"Nothing kept yet");
+  // A look that was just kept is selected, so "Bring back" is one click away.
+  ComboBox_SetCurSel(g.favList, !n ? 0 : (grew && g.favCount >= 0) || sel < 0 ? n - 1 : std::min(sel, n - 1));
+  EnableWindow(g.favList, n > 0);
+  EnableWindow(g.favLoad, n > 0);
+  EnableWindow(g.favDel, n > 0);
+  g.favCount = n;
+}
+
+void deleteSelectedFav() {
+  int sel = ComboBox_GetCurSel(g.favList);
+  if (sel < 0 || g.favCount <= 0) return;
+  wchar_t text[512];
+  ComboBox_GetLBText(g.favList, sel, text);
+  std::wstring q = L"Delete this kept look? This can't be undone.\n\n" + std::wstring(text);
+  if (MessageBoxW(g.main, q.c_str(), L"Drift", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES) g.sh.delFavReq = sel;
 }
 
 /* ------------------------------ typed-in values ------------------------------ */
@@ -672,6 +730,23 @@ void createTooltips() {
   addTip(g.scale, res);
   addTip(g.freeze, L"Stops the look from evolving. It still moves with the music, it just won't change style.");
   addTip(g.onTop, L"Keeps the undocked visualizer window above all other windows.");
+  addTip(g.mutate, L"Changes part of the look right now, as if the music had triggered a scene change.");
+  addTip(g.species, L"Throws the current look away and starts a fresh one (sometimes bred from your kept looks; "
+                    L"see Breed chance).");
+  addTip(g.like, L"Saves the current look. Bring it back any time from \"Kept looks\" below. Fresh looks are also "
+                 L"sometimes bred from the ones you kept.");
+  const wchar_t* fav = L"The looks you saved with \"Keep this look\", oldest first, with when you kept them and what "
+                       L"was in them. Pick one, then press \"Bring back\".";
+  addTip(g.favLabel, fav);
+  addTip(g.favList, fav);
+  addTip(g.favLoad, L"Morphs into the selected kept look. Evolution carries on from it; tick \"Freeze evolution\" "
+                    L"to hold it exactly.");
+  addTip(g.favDel, L"Deletes the selected kept look (asks first).");
+  for (int i = 0; i < kOptSectionCount; i++) {
+    addTip(g.xRandom[i], L"Sets every knob in this group to a random value (frame rate, grip dot size and the silence "
+                         L"level are left alone). Press Reset to go back to the defaults.");
+    addTip(g.xReset[i], L"Puts just this group's knobs back to their defaults.");
+  }
 }
 
 /* ------------------------------ dock / undock / fill ------------------------------ */
@@ -826,6 +901,10 @@ void refreshStatus() {
   setTextIfChanged(g.sceneStatus, st.scene);
   if (S().excessive) setTextIfChanged(g.heard, st.heard);
   setTextIfChanged(g.like, L"♥  Keep this look (" + std::to_wstring(st.favorites) + L" kept)");
+  if (st.favVersion != g.favSeen) {
+    g.favSeen = st.favVersion;
+    refreshFavList(st.favNames);
+  }
   setTextIfChanged(g.dock, S().docked ? L"Undock visualizer" : L"Dock visualizer");
   setTextIfChanged(g.fill, g.filling ? L"Leave fill screen" : L"Fill screen");
   EnableWindow(g.onTop, !S().docked);
@@ -983,6 +1062,12 @@ void createControls() {
   g.mutate = mk(WC_BUTTONW, L"Mutate now", BS_PUSHBUTTON | WS_TABSTOP, IDC_MUTATE);
   g.species = mk(WC_BUTTONW, L"New species", BS_PUSHBUTTON | WS_TABSTOP, IDC_SPECIES);
   g.like = mk(WC_BUTTONW, L"♥  Keep this look", BS_PUSHBUTTON | WS_TABSTOP, IDC_LIKE);
+  g.favLabel = mk(WC_STATICW, L"Kept looks", SS_LEFT | SS_NOTIFY, IDC_FAV_LABEL);
+  g.favList = mk(WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, IDC_FAV_LIST);
+  SendMessageW(g.favList, CB_SETDROPPEDWIDTH, Px(560), 0);
+  g.favLoad = mk(WC_BUTTONW, L"Bring back", BS_PUSHBUTTON | WS_TABSTOP, IDC_FAV_LOAD);
+  g.favDel = mk(WC_BUTTONW, L"Delete", BS_PUSHBUTTON | WS_TABSTOP, IDC_FAV_DEL);
+  refreshFavList({});
   g.evoStatus = mk(WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, IDC_EVO_STATUS);
   g.sceneStatus = mk(WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, IDC_SCENE_STATUS);
   g.scaleLabel = mk(WC_STATICW, L"Render resolution", SS_LEFT | SS_NOTIFY, IDC_SCALE_LABEL);
@@ -1016,6 +1101,8 @@ void createControls() {
   for (int i = 0; i < kOptSectionCount; i++) {
     g.xSection[i] = mk(WC_STATICW, kOptSections[i], SS_LEFT | SS_NOPREFIX, IDC_X_SECTION + i, 0, xs);
     SendMessageW(g.xSection[i], WM_SETFONT, (WPARAM)g.bold, FALSE);
+    g.xRandom[i] = mk(WC_BUTTONW, L"Random", BS_PUSHBUTTON | WS_TABSTOP, IDC_X_RANDOM + i, 0, xs);
+    g.xReset[i] = mk(WC_BUTTONW, L"Reset", BS_PUSHBUTTON | WS_TABSTOP, IDC_X_SECRESET + i, 0, xs);
   }
   g.x.assign(kOptCount, XCtl());
   for (int i = 0; i < kOptCount; i++) {
@@ -1166,8 +1253,18 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         editSettings([&](Settings& s) { s.xi[d.index] = sel; });
       } else if (code == STN_CLICKED && editableValue(id)) {   // STN_CLICKED == BN_CLICKED, so check first
         beginValueEdit(id);
+      } else if (code == BN_CLICKED && id >= IDC_X_RANDOM && id < IDC_X_RANDOM + kOptSectionCount) {
+        setSection(id - IDC_X_RANDOM, true);
+      } else if (code == BN_CLICKED && id >= IDC_X_SECRESET && id < IDC_X_SECRESET + kOptSectionCount) {
+        setSection(id - IDC_X_SECRESET, false);
       } else if (code == BN_CLICKED) {
         switch (id) {
+          case IDC_FAV_LOAD: {
+            int sel = ComboBox_GetCurSel(g.favList);
+            if (sel >= 0 && g.favCount > 0) g.sh.loadFavReq = sel;
+            break;
+          }
+          case IDC_FAV_DEL: deleteSelectedFav(); break;
           case IDC_FREEZE: { bool on = Button_GetCheck(g.freeze) == BST_CHECKED; editSettings([&](Settings& s) { s.freeze = on; }); break; }
           case IDC_ONTOP: { bool on = Button_GetCheck(g.onTop) == BST_CHECKED; editSettings([&](Settings& s) { s.onTop = on; }); applyOnTop(); break; }
           case IDC_EXCESSIVE: {
@@ -1371,7 +1468,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
   g.brDeep = CreateSolidBrush(pal::deep);
   g.brSurface = CreateSolidBrush(pal::surface);
 
-  std::wstring dir = appDataDir();
+  // --data <folder> keeps settings and kept looks somewhere else (testing without touching yours).
+  std::wstring dir;
+  {
+    int n = 0;
+    LPWSTR* av = CommandLineToArgvW(GetCommandLineW(), &n);
+    for (int i = 1; i + 1 < n; i++)
+      if (std::wstring(av[i]) == L"--data") { dir = av[i + 1]; CreateDirectoryW(dir.c_str(), nullptr); }
+    LocalFree(av);
+  }
+  if (dir.empty()) dir = appDataDir();
   g.iniPath = dir + L"\\settings.ini";
   g.sh.favPath = dir + L"\\favorites.txt";
   loadSettings();
@@ -1398,6 +1504,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     else if (a == L"--every") g.sh.shotEvery = float(_wtof(next().c_str()));
     else if (a == L"--size") swscanf(next().c_str(), L"%dx%d", &sizeW, &sizeH);
     else if (a == L"--log") g.sh.logPath = next();
+    else if (a == L"--data") next();   // handled above
     else if (a == L"--set") {
       // --set key=value for any excessive option (testing), e.g. --set x.mGate=0
       std::wstring kv = next();

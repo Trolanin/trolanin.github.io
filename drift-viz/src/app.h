@@ -9,6 +9,7 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <vector>
 #include "options.h"
 
 // Everything the settings window can change. The UI thread writes it (under Shared::mu);
@@ -41,6 +42,8 @@ struct Status {
   std::wstring audio, evo, scene, error, heard;
   float level = 0;
   int favorites = 0;
+  std::vector<std::wstring> favNames;   // kept looks, oldest first
+  int favVersion = -1;
 };
 
 struct Shared {
@@ -51,6 +54,7 @@ struct Shared {
   Status st;
   std::atomic<bool> quit{ false };
   std::atomic<int> mutateReq{ 0 }, speciesReq{ 0 }, likeReq{ 0 };
+  std::atomic<int> loadFavReq{ -1 }, delFavReq{ -1 };   // index of a kept look, -1 = none
   std::wstring favPath;
   // test hooks (command line)
   float evoScale = 1.0f;

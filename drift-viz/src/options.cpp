@@ -118,14 +118,15 @@ const OptDef kOpts[] = {
   SL(XF_EASE, 3, L"Ease speed", "x.ease", 0.2f, 4.f, 1.f, FMT_X,
      L"How quickly the picture glides to new values after a change. Lower: slow, smooth transitions. Higher: snappy."),
   SL(XF_BREED, 3, L"Breed chance", "x.breed", 0.f, 1.f, 0.5f, FMT_PCT,
-     L"Chance that a new species is bred from looks you kept with ♥, instead of being totally random. Higher: new songs "
-     L"look more like your favourites. Does nothing until you have kept some."),
+     L"When a fresh look starts (after a silence, or New species), the chance it is bred by mixing two of your kept "
+     L"looks instead of being totally random. Higher: fresh looks take after the ones you kept. Does nothing until you "
+     L"have kept some."),
   SL(XF_BREED_JITTER, 3, L"Breed mutation", "x.breedJitter", 0.f, 0.4f, 0.05f, FMT_PCT,
      L"How far a bred species strays from its parent favourites. 0: close copies. Higher: looser variations."),
   SL(XF_DRAIN, 3, L"Silence drain", "x.drain", 0.f, 1.f, 0.2f, FMT_PCT,
      L"How fast the picture simplifies back toward calm during silence. 0: it stays as busy as it was."),
   SL(XF_START_CX, 3, L"Lowest start", "x.startLow", 0.f, 0.8f, 0.05f, FMT_PCT,
-     L"The least complex a new species may start. Higher: new songs never start bare; they begin with more layers in."),
+     L"The least complex a fresh look may start. Higher: fresh looks never start bare; they begin with more layers in."),
   SL(XF_LATENT, 3, L"Latent mixing", "x.latent", 0.f, 1.f, 0.4f, FMT_PCT,
      L"Hidden factors that make unrelated settings move together. Higher: more coordinated, sweeping changes across "
      L"the whole look. 0: every setting drifts on its own."),
@@ -212,6 +213,11 @@ const OptDef kOpts[] = {
      L"speed of things doesn't change."),
 };
 const int kOptCount = int(sizeof kOpts / sizeof kOpts[0]);
+
+bool optRandomizable(const OptDef& d) {
+  if (d.kind == OPT_COMBO) return d.index != XI_FPS;
+  return d.index != XF_SILENCE_DB && d.index != XF_GRIP_SIZE;
+}
 
 void optDefaults(float* x, int* xi) {
   for (int i = 0; i < kOptCount; i++) {

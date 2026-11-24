@@ -63,7 +63,11 @@ public:
   void mutateScene(float strength, const std::wstring& why, unsigned groups = GM_ALL);
   void newSpecies(const wchar_t* why);
   void like();
+  void loadFav(int k);     // bring back kept look k, as a new species that starts from it
+  void deleteFav(int k);
   int favoriteCount() const { return int(favs.size()); }
+  std::vector<std::wstring> favLabels() const;   // one line per kept look, for the settings window
+  int favVersion = 0;      // bumped whenever the kept looks change
   std::wstring describe() const;
   std::wstring heard(const AudioFrame& a) const;
   static float optionValue(int c, int opt);
@@ -88,6 +92,7 @@ private:
   int lastCount[9] = {};
   bool countsInit = false;
   std::vector<std::vector<float>> favs;
+  std::vector<long long> favTime;   // when each was kept (unix time; 0 = before times were saved)
   std::wstring favPath;
 
   float uni(float a = 0.f, float b = 1.f) { return a + (b - a) * std::uniform_real_distribution<float>(0.f, 1.f)(rng); }
@@ -103,6 +108,7 @@ private:
   void newGates();
   void newPacing();
   float startComplexity();
+  static std::wstring describeLook(const float* genes, const int* choices);
   void loadFavs();
   void saveFavs() const;
 };

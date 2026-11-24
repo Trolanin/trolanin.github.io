@@ -72,7 +72,8 @@ Windows SmartScreen may warn you because the file isn't signed. Click "More info
 | Complexity swing | Minutes for complexity to travel from calm to busy (it wanders both ways) |
 | Max complexity | Caps how busy the picture can get |
 | Freeze evolution | Holds the current look (it still reacts to the music) |
-| Keep this look | Saves the look as a favourite. New species are sometimes bred from favourites. |
+| Keep this look | Saves the current look. |
+| Kept looks | Every look you kept, with when you kept it and what was in it. **Bring back** morphs into the selected one (evolution carries on from it; tick Freeze to hold it). **Delete** removes it after asking. Fresh looks are also sometimes bred from kept ones (see Breed chance). |
 | Trails | Shorter or longer feedback trails |
 | Brightness | Overall exposure. The picture also auto-adjusts so stacked layers don't wash out to white. |
 | Render resolution | 50% / 75% / 100% of the window, for slower GPUs |
@@ -87,7 +88,9 @@ Settings and favourites are saved in `%APPDATA%\DriftViz\`.
 
 ### Excessive options
 
-Tick **Excessive options** at the bottom of the settings to open seven more groups:
+Tick **Excessive options** at the bottom of the settings to open seven more groups. Each group has a
+**Random** button, which sets its knobs to random values (frame rate, grip dot size and the silence level
+are left alone), and a **Reset** button that puts just that group back to its defaults:
 
 | Group | What's in it |
 |---|---|
@@ -203,4 +206,5 @@ It has no frameworks.
 | `--no-save` | Don't write settings on exit |
 | `--excessive` | Start with the excessive options shown |
 | `--scroll-more` | Start with the settings scrolled to the excessive options |
+| `--data folder` | Keep settings and kept looks in another folder instead of `%APPDATA%\DriftViz` |
 | `--set key=value` | Set one excessive option, e.g. `--set x.mGate=0` (keys as in `settings.ini`) |
