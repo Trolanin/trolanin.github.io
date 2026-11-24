@@ -377,7 +377,7 @@ void layoutPanel() {
   bool xs = S().excessive;
   for (int pass = 0; pass < 2; pass++) {
     int m = Px(12), x = m, w = std::max(int(rc.right) - 2 * m, Px(120)), y = Px(6) - g.scrollY;
-    auto place = [&](HWND h, int px, int py, int pw, int ph) { SetWindowPos(h, nullptr, px, py, pw, ph, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW); };
+    auto place = [&](HWND h, int px, int py, int pw, int ph) { SetWindowPos(h, nullptr, px, py, pw, ph, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOCOPYBITS); };
     int lw = Px(124), vw = Px(60);
     auto header = [&](HWND h) { y += Px(8); place(h, x, y, w, Px(22)); y += Px(26); };
     // Section title with its Random and Reset buttons on the right.
@@ -486,6 +486,17 @@ void layoutPanel() {
   SetScrollInfo(g.panel, SB_VERT, &si, TRUE);
   RedrawWindow(g.panel, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
   g.inLayout = false;
+}
+
+// Scrolling is clamped before anything moves: past the top or bottom the controls used to be laid
+// out at the out-of-range position first and then snapped back, which showed as a jump.
+void scrollPanelTo(int y) {
+  RECT rc;
+  GetClientRect(g.panel, &rc);
+  y = std::clamp(y, 0, std::max(0, g.contentH - int(rc.bottom)));
+  if (y == g.scrollY) return;   // already at the end: nothing to move
+  g.scrollY = y;
+  layoutPanel();
 }
 
 void layoutMain() {
@@ -1438,13 +1449,11 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case SB_TOP: y = 0; break;
         case SB_BOTTOM: y = si.nMax; break;
       }
-      g.scrollY = y;
-      layoutPanel();
+      scrollPanelTo(y);
       return 0;
     }
     case WM_MOUSEWHEEL:
-      g.scrollY -= GET_WHEEL_DELTA_WPARAM(wp) * Px(60) / WHEEL_DELTA;
-      layoutPanel();
+      scrollPanelTo(g.scrollY - GET_WHEEL_DELTA_WPARAM(wp) * Px(60) / WHEEL_DELTA);
       return 0;
     case WM_COMMAND: {
       int id = LOWORD(wp), code = HIWORD(wp);
