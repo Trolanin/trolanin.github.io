@@ -13,6 +13,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <cwctype>
+#include <deque>
 #include <thread>
 #include <vector>
 #pragma comment(lib, "comctl32.lib")
@@ -27,25 +29,40 @@ namespace {
 enum {
   IDC_SOURCE = 100, IDC_SOURCE_LABEL, IDC_AUDIO_STATUS, IDC_FREEZE, IDC_MUTATE, IDC_SPECIES, IDC_LIKE,
   IDC_EVO_STATUS, IDC_SCENE_STATUS, IDC_SCALE, IDC_SCALE_LABEL, IDC_DOCK, IDC_SIZE_LABEL, IDC_W, IDC_X,
-  IDC_H, IDC_APPLY, IDC_FILL, IDC_ONTOP, IDC_TIPS, IDC_METER, IDC_EXCESSIVE, IDC_RESET_X, IDC_HEARD,
+  IDC_H, IDC_APPLY, IDC_FILL, IDC_ONTOP, IDC_TIPS, IDC_METER, IDC_EXCESSIVE, IDC_RESET_X, IDC_HEARD, IDC_VAL_EDIT,
   IDC_HEADER = 150, IDC_SLIDER = 200, IDC_SLIDER_VALUE = 300, IDC_SLIDER_LABEL = 400,
   // excessive options: one id block per control kind, indexed by kOpts
   IDC_X_LABEL = 2000, IDC_X_CTRL = 2200, IDC_X_VALUE = 2400, IDC_X_SECTION = 2600,
 };
 enum { CMD_MUTATE = 1000, CMD_SPECIES, CMD_LIKE, CMD_FREEZE, CMD_DOCK, CMD_FILL, CMD_ONTOP, CMD_SETTINGS, CMD_EXIT };
 
-struct SliderDef { const wchar_t* label; float lo, hi; float Settings::* field; int fmt; };
+struct SliderDef { const wchar_t* label; float lo, hi; float Settings::* field; int fmt; const wchar_t* tip; };
 const SliderDef kSliders[] = {
-  { L"Reactivity", 0.f, 2.f, &Settings::reactivity, FMT_PCT },
-  { L"Evolution speed", 0.f, 3.f, &Settings::evoSpeed, FMT_PCT },
-  { L"Mutation strength", 0.f, 1.f, &Settings::mutation, FMT_PCT },
-  { L"Max scene length", 8.f, 120.f, &Settings::sceneLen, FMT_SEC },
-  { L"Complexity swing", 0.5f, 10.f, &Settings::buildMin, FMT_MIN },
-  { L"Max complexity", 0.f, 1.f, &Settings::complexityCap, FMT_PCT },
-  { L"Trails", -1.f, 1.f, &Settings::trails, FMT_SIGNED },
-  { L"Brightness", 0.3f, 2.f, &Settings::brightness, FMT_PCT },
-  { L"Grip dot opacity", 0.05f, 0.8f, &Settings::gripOpacity, FMT_PCT },
+  { L"Reactivity", 0.f, 2.f, &Settings::reactivity, FMT_PCT,
+    L"How hard the music pushes the picture around. Higher: bigger zoom kicks, spins and flashes on beats. Lower: "
+    L"calmer, the music barely moves it." },
+  { L"Evolution speed", 0.f, 3.f, &Settings::evoSpeed, FMT_PCT,
+    L"How fast the look slowly morphs on its own between scene changes. Higher: colours, shapes and motion keep "
+    L"shifting. 0: the look only changes when a scene mutates." },
+  { L"Mutation strength", 0.f, 1.f, &Settings::mutation, FMT_PCT,
+    L"How big a jump each scene change makes. Low: subtle tweaks. High: the picture can become something quite "
+    L"different at once." },
+  { L"Max scene length", 8.f, 120.f, &Settings::sceneLen, FMT_SEC,
+    L"The longest the picture goes without a scene change when the music doesn't trigger one. Shorter: more frequent "
+    L"jumps." },
+  { L"Complexity swing", 0.5f, 10.f, &Settings::buildMin, FMT_MIN,
+    L"How many minutes it takes to go from a calm, sparse picture to a busy, layered one, and back. Shorter: layers "
+    L"and effects come and go faster." },
+  { L"Max complexity", 0.f, 1.f, &Settings::complexityCap, FMT_PCT,
+    L"Caps how busy the picture can get. Lower: fewer stacked layers and math effects, a cleaner picture." },
+  { L"Trails", -1.f, 1.f, &Settings::trails, FMT_SIGNED,
+    L"How long the ghostly smear behind moving things lasts. +: long, smoky trails. −: crisp, short-lived shapes." },
+  { L"Brightness", 0.3f, 2.f, &Settings::brightness, FMT_PCT,
+    L"Overall exposure. The picture still dims itself if stacked layers start to wash out to white." },
+  { L"Grip dot opacity", 0.05f, 0.8f, &Settings::gripOpacity, FMT_PCT,
+    L"How visible the drag dot in the top-left corner of the undocked window is." },
 };
+const wchar_t* const kEditHint = L"\n\nClick the number on the right to type an exact value.";
 const int kSliderCount = int(sizeof kSliders / sizeof kSliders[0]);
 const int kScales[] = { 50, 75, 100 };
 const wchar_t* kHeaders[] = { L"Audio", L"Evolution", L"Look", L"Window", L"More" };
@@ -79,6 +96,9 @@ struct App {
   HWND scale, scaleLabel, dock, sizeLabel, editW, editX, editH, apply, fill, onTop, tips;
   HWND excessive, resetX, heard, xSection[8] = {};
   std::vector<XCtl> x;
+  HWND tip = nullptr, valEdit = nullptr;   // mouse-over descriptions; the box for typing a value
+  std::deque<std::wstring> tipText;        // the tooltip keeps pointers into these
+  int editId = 0;                          // value label being typed into (0 = none)
   bool (WINAPI* allowDark)(HWND, bool) = nullptr;
 } g;
 
@@ -419,6 +439,13 @@ void layoutPanel() {
     if (clamped == g.scrollY) break;
     g.scrollY = clamped;
   }
+  if (g.editId) {
+    // Keep the typing box over its value while the panel scrolls.
+    RECT r;
+    GetWindowRect(GetDlgItem(g.panel, g.editId), &r);
+    MapWindowPoints(nullptr, g.panel, (POINT*)&r, 2);
+    SetWindowPos(g.valEdit, HWND_TOP, r.left - Px(6), r.top - Px(4), r.right - r.left + Px(6), Px(24), SWP_NOACTIVATE | SWP_NOREDRAW);
+  }
   SCROLLINFO si = { sizeof si, SIF_RANGE | SIF_PAGE | SIF_POS, 0, g.contentH - 1, UINT(rc.bottom), g.scrollY, 0 };
   SetScrollInfo(g.panel, SB_VERT, &si, TRUE);
   RedrawWindow(g.panel, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
@@ -478,6 +505,173 @@ void showExcessive(bool on) {
     g.scrollY = g.moreY;
     layoutPanel();
   }
+}
+
+/* ------------------------------ typed-in values ------------------------------ */
+// Every slider's value label can be clicked to type a number in the units it shows.
+bool editableValue(int id) {
+  return (id >= IDC_SLIDER_VALUE && id < IDC_SLIDER_VALUE + kSliderCount) ||
+         (id >= IDC_X_VALUE && id < IDC_X_VALUE + kOptCount && kOpts[id - IDC_X_VALUE].kind == OPT_SLIDER);
+}
+
+void valueInfo(int id, float& lo, float& hi, int& fmt, float& cur, HWND& slider) {
+  if (id < IDC_X_VALUE) {
+    const SliderDef& d = kSliders[id - IDC_SLIDER_VALUE];
+    lo = d.lo; hi = d.hi; fmt = d.fmt; cur = S().*d.field; slider = g.slider[id - IDC_SLIDER_VALUE];
+  } else {
+    const OptDef& d = kOpts[id - IDC_X_VALUE];
+    lo = d.lo; hi = d.hi; fmt = d.fmt; cur = S().x[d.index]; slider = g.x[id - IDC_X_VALUE].ctrl;
+  }
+}
+
+void setValue(int id, float v) {
+  HWND val = GetDlgItem(g.panel, id), sl;
+  float lo, hi, cur;
+  int fmt;
+  valueInfo(id, lo, hi, fmt, cur, sl);
+  v = std::clamp(v, lo, hi);
+  if (id < IDC_X_VALUE) {
+    const SliderDef& d = kSliders[id - IDC_SLIDER_VALUE];
+    editSettings([&](Settings& s) { s.*d.field = v; });
+  } else {
+    const OptDef& d = kOpts[id - IDC_X_VALUE];
+    v = snapOpt(d, v);
+    editSettings([&](Settings& s) { s.x[d.index] = v; });
+  }
+  SendMessageW(sl, TBM_SETPOS, TRUE, LPARAM(std::lround((v - lo) / (hi - lo) * 1000.f)));
+  InvalidateRect(sl, nullptr, TRUE);
+  SetWindowTextW(val, formatValue(fmt, v).c_str());
+}
+
+// Percentages are typed as percent (85 = 85%), everything else in the unit shown.
+bool percentFmt(int fmt) { return fmt == FMT_PCT || fmt == FMT_PCT_OFF || fmt == FMT_SIGNED; }
+
+std::wstring editText(int fmt, float v) {
+  wchar_t b[32];
+  swprintf(b, 32, L"%.2f", percentFmt(fmt) ? v * 100.0 : double(v));
+  std::wstring s = b;
+  while (!s.empty() && s.back() == L'0') s.pop_back();
+  if (!s.empty() && s.back() == L'.') s.pop_back();
+  return s == L"-0" ? L"0" : s;
+}
+
+bool parseEdit(int fmt, const wchar_t* s, float& out) {
+  while (iswspace(*s)) s++;
+  if (fmt == FMT_PCT_OFF && !_wcsnicmp(s, L"off", 3)) { out = 0; return true; }
+  std::wstring t = s;
+  for (auto& c : t) if (c == L'−') c = L'-';   // typographic minus
+  wchar_t* end;
+  double d = wcstod(t.c_str(), &end);
+  if (end == t.c_str() || !std::isfinite(d)) return false;
+  out = float(percentFmt(fmt) ? d / 100.0 : d);
+  return true;
+}
+
+void endValueEdit(bool commit, bool refocus) {
+  if (!g.editId) return;
+  int id = g.editId;
+  g.editId = 0;
+  float lo, hi, cur, v;
+  int fmt;
+  HWND sl;
+  valueInfo(id, lo, hi, fmt, cur, sl);
+  wchar_t b[64];
+  GetWindowTextW(g.valEdit, b, 64);
+  if (commit && parseEdit(fmt, b, v)) setValue(id, v);
+  // Hand the keyboard to the row's slider, so the arrow keys can fine-tune from here.
+  if (refocus) SetFocus(sl);
+  ShowWindow(g.valEdit, SW_HIDE);
+  ShowWindow(GetDlgItem(g.panel, id), SW_SHOWNA);
+}
+
+void beginValueEdit(int id) {
+  endValueEdit(true, false);
+  HWND val = GetDlgItem(g.panel, id), sl;
+  float lo, hi, cur;
+  int fmt;
+  valueInfo(id, lo, hi, fmt, cur, sl);
+  RECT r;
+  GetWindowRect(val, &r);
+  MapWindowPoints(nullptr, g.panel, (POINT*)&r, 2);
+  g.editId = id;
+  SetWindowTextW(g.valEdit, editText(fmt, cur).c_str());
+  ShowWindow(val, SW_HIDE);
+  SetWindowPos(g.valEdit, HWND_TOP, r.left - Px(6), r.top - Px(4), r.right - r.left + Px(6), Px(24), SWP_SHOWWINDOW);
+  SetFocus(g.valEdit);
+  Edit_SetSel(g.valEdit, 0, -1);
+}
+
+// Enter keeps the typed value, Esc puts the old one back, clicking away keeps it.
+LRESULT CALLBACK valEditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+  switch (msg) {
+    case WM_GETDLGCODE:
+      if (auto* m = (MSG*)lp; m && m->message == WM_KEYDOWN && (m->wParam == VK_RETURN || m->wParam == VK_ESCAPE))
+        return DLGC_WANTALLKEYS;
+      break;
+    case WM_KEYDOWN:
+      if (wp == VK_RETURN || wp == VK_ESCAPE) { endValueEdit(wp == VK_RETURN, true); return 0; }
+      break;
+    case WM_CHAR:
+      if (wp == L'\r' || wp == 27) return 0;   // no beep
+      break;
+    case WM_KILLFOCUS: endValueEdit(true, false); break;
+    case WM_NCDESTROY: RemoveWindowSubclass(h, valEditProc, 1); break;
+  }
+  return DefSubclassProc(h, msg, wp, lp);
+}
+
+/* ------------------------------ mouse-over descriptions ------------------------------ */
+void styleTooltip() {
+  SendMessageW(g.tip, WM_SETFONT, (WPARAM)g.font, FALSE);
+  SendMessageW(g.tip, TTM_SETMAXTIPWIDTH, 0, 340);   // in 96-dpi units: the tooltip scales it itself
+  RECT m = { Px(6), Px(4), Px(6), Px(4) };
+  SendMessageW(g.tip, TTM_SETMARGIN, 0, (LPARAM)&m);
+}
+
+void addTip(HWND ctl, const std::wstring& text) {
+  if (!g.tip || !ctl || text.empty()) return;
+  g.tipText.push_back(text);
+  TTTOOLINFOW ti = { sizeof ti };
+  ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+  ti.hwnd = g.panel;
+  ti.uId = (UINT_PTR)ctl;
+  ti.lpszText = const_cast<wchar_t*>(g.tipText.back().c_str());
+  SendMessageW(g.tip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+}
+
+void createTooltips() {
+  g.tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT,
+                          CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, g.panel, nullptr, g.inst, nullptr);
+  if (!g.tip) return;
+  SetWindowTheme(g.tip, L"", L"");   // unthemed, so the dark colours below apply
+  SendMessageW(g.tip, TTM_SETTIPBKCOLOR, pal::surface, 0);
+  SendMessageW(g.tip, TTM_SETTIPTEXTCOLOR, pal::text, 0);
+  SendMessageW(g.tip, TTM_SETDELAYTIME, TTDT_INITIAL, 450);
+  SendMessageW(g.tip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+  styleTooltip();
+  for (int i = 0; i < kSliderCount; i++) {
+    std::wstring t = std::wstring(kSliders[i].tip) + kEditHint;
+    addTip(g.sliderLabel[i], t);
+    addTip(g.slider[i], t);
+    addTip(g.sliderVal[i], t);
+  }
+  for (int i = 0; i < kOptCount; i++) {
+    const OptDef& d = kOpts[i];
+    std::wstring t = std::wstring(d.tip) + (d.kind == OPT_SLIDER ? kEditHint : L"");
+    addTip(g.x[i].label, t);
+    addTip(g.x[i].ctrl, t);
+    addTip(g.x[i].value, t);
+  }
+  const wchar_t* src = L"What the visualizer reacts to: whatever Windows is playing (any app, through your default "
+                       L"output device), or a built-in demo beat for trying it out.";
+  addTip(g.sourceLabel, src);
+  addTip(g.source, src);
+  const wchar_t* res = L"Draws the picture at a fraction of the window size and scales it up. Lower: a softer, slightly "
+                       L"blurry image, but much less GPU work.";
+  addTip(g.scaleLabel, res);
+  addTip(g.scale, res);
+  addTip(g.freeze, L"Stops the look from evolving. It still moves with the music, it just won't change style.");
+  addTip(g.onTop, L"Keeps the undocked visualizer window above all other windows.");
 }
 
 /* ------------------------------ dock / undock / fill ------------------------------ */
@@ -770,7 +964,7 @@ void createControls() {
     g.header[i] = mk(WC_STATICW, kHeaders[i], SS_LEFT | SS_NOPREFIX, IDC_HEADER + i);
     SendMessageW(g.header[i], WM_SETFONT, (WPARAM)g.bold, FALSE);
   }
-  g.sourceLabel = mk(WC_STATICW, L"Listen to", SS_LEFT, IDC_SOURCE_LABEL);
+  g.sourceLabel = mk(WC_STATICW, L"Listen to", SS_LEFT | SS_NOTIFY, IDC_SOURCE_LABEL);
   g.source = mk(WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, IDC_SOURCE);
   ComboBox_AddString(g.source, L"What Windows is playing");
   ComboBox_AddString(g.source, L"Demo beat (built in)");
@@ -780,9 +974,9 @@ void createControls() {
   for (int i = 0; i < kSliderCount; i++) {
     const SliderDef& d = kSliders[i];
     float v = s.*d.field;
-    g.sliderLabel[i] = mk(WC_STATICW, d.label, SS_LEFT | SS_NOPREFIX, IDC_SLIDER_LABEL + i);
+    g.sliderLabel[i] = mk(WC_STATICW, d.label, SS_LEFT | SS_NOPREFIX | SS_NOTIFY, IDC_SLIDER_LABEL + i);
     g.slider[i] = mkSlider(IDC_SLIDER + i, v, d.lo, d.hi, true);
-    g.sliderVal[i] = mk(WC_STATICW, formatValue(d.fmt, v).c_str(), SS_RIGHT | SS_NOPREFIX, IDC_SLIDER_VALUE + i);
+    g.sliderVal[i] = mk(WC_STATICW, formatValue(d.fmt, v).c_str(), SS_RIGHT | SS_NOPREFIX | SS_NOTIFY, IDC_SLIDER_VALUE + i);
   }
   g.freeze = mk(WC_BUTTONW, L"Freeze evolution (keep the current look)", BS_AUTOCHECKBOX | WS_TABSTOP, IDC_FREEZE);
   Button_SetCheck(g.freeze, s.freeze ? BST_CHECKED : BST_UNCHECKED);
@@ -791,7 +985,7 @@ void createControls() {
   g.like = mk(WC_BUTTONW, L"♥  Keep this look", BS_PUSHBUTTON | WS_TABSTOP, IDC_LIKE);
   g.evoStatus = mk(WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, IDC_EVO_STATUS);
   g.sceneStatus = mk(WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, IDC_SCENE_STATUS);
-  g.scaleLabel = mk(WC_STATICW, L"Render resolution", SS_LEFT, IDC_SCALE_LABEL);
+  g.scaleLabel = mk(WC_STATICW, L"Render resolution", SS_LEFT | SS_NOTIFY, IDC_SCALE_LABEL);
   g.scale = mk(WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, IDC_SCALE);
   ComboBox_AddString(g.scale, L"50% (fastest)");
   ComboBox_AddString(g.scale, L"75%");
@@ -827,17 +1021,19 @@ void createControls() {
   for (int i = 0; i < kOptCount; i++) {
     const OptDef& d = kOpts[i];
     XCtl& c = g.x[i];
-    c.label = mk(WC_STATICW, d.label, SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS, IDC_X_LABEL + i, 0, xs);
+    c.label = mk(WC_STATICW, d.label, SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS | SS_NOTIFY, IDC_X_LABEL + i, 0, xs);
     if (d.kind == OPT_SLIDER) {
       float v = s.x[d.index];
       c.ctrl = mkSlider(IDC_X_CTRL + i, v, d.lo, d.hi, xs);
-      c.value = mk(WC_STATICW, formatValue(d.fmt, v).c_str(), SS_RIGHT | SS_NOPREFIX, IDC_X_VALUE + i, 0, xs);
+      c.value = mk(WC_STATICW, formatValue(d.fmt, v).c_str(), SS_RIGHT | SS_NOPREFIX | SS_NOTIFY, IDC_X_VALUE + i, 0, xs);
     } else {
       c.ctrl = mk(WC_COMBOBOXW, L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, IDC_X_CTRL + i, 0, xs);
       for (int k = 0; k < d.nItems; k++) ComboBox_AddString(c.ctrl, d.items[k]);
       ComboBox_SetCurSel(c.ctrl, s.xi[d.index]);
     }
   }
+  g.valEdit = mk(WC_EDITW, L"", ES_RIGHT | ES_AUTOHSCROLL, IDC_VAL_EDIT, WS_EX_CLIENTEDGE, false);
+  SetWindowSubclass(g.valEdit, valEditProc, 1, 0);
 }
 
 bool isMutedText(int id) {
@@ -851,10 +1047,18 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       g.panel = h;
       darkControl(h, L"DarkMode_Explorer");   // dark scroll bar
       createControls();
+      createTooltips();
       SetTimer(h, 1, 250, nullptr);
       SetTimer(h, 2, 50, nullptr);
       return 0;
     case WM_SIZE: layoutPanel(); return 0;
+    case WM_LBUTTONDOWN: endValueEdit(true, false); return 0;
+    case WM_SETCURSOR:
+      if (LOWORD(lp) == HTCLIENT && editableValue(GetDlgCtrlID((HWND)wp))) {
+        SetCursor(LoadCursorW(nullptr, IDC_HAND));   // value labels can be clicked to type a number
+        return TRUE;
+      }
+      break;
     case WM_TIMER:
       if (wp == 1) refreshStatus();
       else {
@@ -948,6 +1152,8 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_COMMAND: {
       int id = LOWORD(wp), code = HIWORD(wp);
+      // Labels and empty space never take the focus, so a click on them ends typing here.
+      if (code == STN_CLICKED && (HWND)lp != g.valEdit) endValueEdit(true, false);
       if (id == IDC_SOURCE && code == CBN_SELCHANGE) {
         int sel = ComboBox_GetCurSel(g.source);
         editSettings([&](Settings& s) { s.source = sel; });
@@ -958,6 +1164,8 @@ LRESULT CALLBACK panelProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         const OptDef& d = kOpts[id - IDC_X_CTRL];
         int sel = std::clamp(ComboBox_GetCurSel((HWND)lp), 0, d.nItems - 1);
         editSettings([&](Settings& s) { s.xi[d.index] = sel; });
+      } else if (code == STN_CLICKED && editableValue(id)) {   // STN_CLICKED == BN_CLICKED, so check first
+        beginValueEdit(id);
       } else if (code == BN_CLICKED) {
         switch (id) {
           case IDC_FREEZE: { bool on = Button_GetCheck(g.freeze) == BST_CHECKED; editSettings([&](Settings& s) { s.freeze = on; }); break; }
@@ -1111,6 +1319,7 @@ LRESULT CALLBACK mainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
       g.dpi = HIWORD(wp);
       makeFonts();
       applyFonts();
+      if (g.tip) styleTooltip();
       for (int i = 0; i < kSliderCount; i++) SendMessageW(g.slider[i], TBM_SETTHUMBLENGTH, Px(18), 0);
       for (auto& c : g.x) if (c.value) SendMessageW(c.ctrl, TBM_SETTHUMBLENGTH, Px(18), 0);
       RECT* r = (RECT*)lp;

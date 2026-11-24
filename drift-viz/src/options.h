@@ -55,6 +55,7 @@ struct OptDef {
   int fmt;
   const wchar_t* const* items;   // combos
   int nItems;
+  const wchar_t* tip;        // mouse-over description: what changing it does to the picture
 };
 
 extern const OptDef kOpts[];

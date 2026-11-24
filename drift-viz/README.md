@@ -79,6 +79,10 @@ Windows SmartScreen may warn you because the file isn't signed. Click "More info
 | Undocked window stays on top | Keeps the borderless window above other windows |
 | Excessive options | Shows 83 more knobs, below. "Reset" puts just those back to their defaults. |
 
+Hover over any setting to see what changing it does to the picture. Click a slider's value to
+type an exact number: percentages in percent (`85` = 85%), everything else in the unit shown.
+Enter or clicking away applies it, Esc cancels. Typed values are kept inside the slider's range.
+
 Settings and favourites are saved in `%APPDATA%\DriftViz\`.
 
 ### Excessive options
