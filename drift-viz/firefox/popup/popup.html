@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drift for YouTube</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="../icon.svg" alt="" width="22" height="22">
+    <h1>Drift for YouTube</h1>
+  </header>
+
+  <label class="switch" title="Covers the YouTube picture with the visualizer, which reacts to the video's sound. Shortcut: Alt+Shift+V.">
+    <input type="checkbox" id="enabled">
+    <span class="track"><span class="knob"></span></span>
+    <span class="text">Visualizer</span>
+  </label>
+  <label class="switch" title="While the visualizer covers the picture, the video is held at 144p, the lowest quality, so it downloads far less data. The sound quality doesn't change.">
+    <input type="checkbox" id="saveData">
+    <span class="track"><span class="knob"></span></span>
+    <span class="text">Save data (144p while it's on)</span>
+  </label>
+
+  <div class="buttons">
+    <button id="newSpecies" title="Start a fresh random look.">New look</button>
+    <button id="mutate" title="Change part of the current look right now.">Mutate</button>
+  </div>
+
+  <div id="status" class="status">Open a YouTube video to see the visualizer.</div>
+
+  <div id="sliders"></div>
+  <div class="buttons"><button id="reset" class="quiet" title="Put the sliders back to their defaults.">Reset sliders</button></div>
+  <script src="popup.js"></script>
+</body>
+</html>
