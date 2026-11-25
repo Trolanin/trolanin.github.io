@@ -31,6 +31,9 @@ The app is dark throughout: title bar, controls, menus and scroll bars.
 single file with no installer. It needs 64-bit Windows 10 or 11 and a DirectX 11 GPU.
 Windows SmartScreen may warn you because the file isn't signed. Click "More info", then "Run anyway".
 
+**Android:** [Drift for Android](android/README.md) is a quick phone version (Android 10+). It visualizes
+what your phone plays, or the microphone.
+
 **Firefox add-on:** [Drift for YouTube](firefox/README.md) puts the visualizer over YouTube
 videos, driven by the video's sound, and holds the video at 144p underneath to save data.
 

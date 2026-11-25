@@ -6,3 +6,4 @@ desktop.ini
 *.log
 led-sim/android/build/
 drift-viz/build/
+drift-viz/android/build/

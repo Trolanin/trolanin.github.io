@@ -65,5 +65,8 @@ is committed so the site can serve it. Rebuild it and recommit it after every so
   prints the event counters, so a 110 s `--demo --log` run checks the detectors.
   `--shot` runs headless-ish (no focus steal, no settings save). Check visuals with a contact sheet of the `--shots` output.
   On the owner's PC the display scale is 250%, so UI automation must call `SetThreadDpiAwarenessContext(-4)`.
+- `android/` is Drift for Android, a quick GLES 3.0 port (Java, Android 10+, same no-Gradle, no-lambda build as LED Audio:
+  `android\build-apk.ps1` writes `drift.apk`). `Params`, `Shaders`, `Analyzer`, `DemoSynth` and `Evolver` are pure Java,
+  so they can be tested on a desktop JVM, with the shaders rendered through WebGL2 (same GLSL ES 3.00).
 - Frame pacing: a waitable swap chain with max latency 1, plus a cap at the monitor refresh rate. Without them the flip model
   ran at more than 6000 fps on this PC.
